@@ -86,3 +86,15 @@ function countStones(board) {
     }
     return { black: blackCount, white: whiteCount };
 }
+
+function findPossibleMoves(board, player) {
+    const moves = [];
+    for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+            if (isValidMove(board, i, j, player)) {
+                moves.push([i, j]);
+            }
+        }
+    }
+    return moves;
+}

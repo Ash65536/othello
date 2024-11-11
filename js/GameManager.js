@@ -20,6 +20,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     const stone = document.createElement('div');
                     stone.classList.add('stone', board[i][j]);
                     cell.appendChild(stone);
+                } else if (isValidMove(board, i, j, currentPlayer)) {
+                    const hint = document.createElement('div');
+                    hint.classList.add('hint', currentPlayer);
+                    cell.appendChild(hint);
                 }
                 cell.addEventListener('click', () => handleCellClick(i, j));
                 boardElement.appendChild(cell);
@@ -31,13 +35,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isValidMove(board, row, col, currentPlayer)) {
             applyMove(board, row, col, currentPlayer);
             currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
+            renderBoard();
             if (!hasValidMove(board, currentPlayer)) {
                 currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
                 if (!hasValidMove(board, currentPlayer)) {
                     endGame();
-                    return;
                 }
             }
+            if (currentPlayer === 'white') {
+                aiMove();
+            }
+        }
+    }
+
+    function aiMove() {
+        const move = findBestMove(board, 'white');
+        if (move) {
+            applyMove(board, move[0], move[1], 'white');
+            currentPlayer = 'black';
             renderBoard();
         }
     }
