@@ -1,0 +1,80 @@
+body {
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    background-color: #1abc9c; /* 新しい背景色 */
+}
+
+.board {
+    display: grid;
+    grid-template-columns: repeat(8, 50px);
+    grid-template-rows: repeat(8, 50px);
+    gap: 2px;
+    background-color: #34495e; /* 薄い黒 */
+    padding: 10px;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* ボードに影を追加 */
+}
+
+.cell {
+    width: 50px;
+    height: 50px;
+    background-color: #2ecc71; /* 緑色 */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-radius: 5px;
+    cursor: pointer;
+    border: 1px solid #27ae60; /* セルに境界線を追加 */
+    position: relative;
+}
+
+.cell.black, .cell.white {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90%; /* 石のサイズを調整 */
+    height: 90%; /* 石のサイズを調整 */
+    border-radius: 50%;
+    box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.5);
+    border: 2px solid #27ae60; /* 石に境界線を追加 */
+}
+
+.cell.black {
+    background-color: #000; /* 黒石の背景色 */
+}
+
+.cell.white {
+    background-color: #fff; /* 白石の背景色 */
+}
+
+.stone {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    height: 90%;
+    border-radius: 50%;
+    box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.5);
+    border: 2px solid #27ae60; /* 石に境界線を追加 */
+}
+
+.stone.black {
+    background-color: #000; /* 黒石の背景色 */
+}
+
+.stone.white {
+    background-color: #fff; /* 白石の背景色 */
+}
+
+.message {
+    margin-top: 20px;
+    font-size: 1.5em;
+    color: #34495e;
+}
