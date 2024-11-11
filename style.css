@@ -43,6 +43,13 @@ body {
     border-radius: 50%;
     box-shadow: inset 0 0 3px rgba(0, 0, 0, 0.3);
     border: 2px solid #27ae60; /* 石に境界線を追加 */
+    transition: transform 0.5s ease-in-out, background-color 0.25s ease-in-out;
+    transform-style: preserve-3d;
+    backface-visibility: visible;  /* hideからvisibleに変更 */
+}
+
+.stone.flipping {
+    transform: translate(-50%, -50%) rotateY(180deg);
 }
 
 .stone.black {
@@ -51,6 +58,16 @@ body {
 
 .stone.white {
     background-color: #fff; /* 白石の背景色 */
+}
+
+.stone.black-to-white {
+    transform: translate(-50%, -50%) rotateY(180deg);
+    background-color: #fff;
+}
+
+.stone.white-to-black {
+    transform: translate(-50%, -50%) rotateY(180deg);
+    background-color: #000;
 }
 
 .hint {
@@ -72,4 +89,15 @@ body {
     margin-top: 20px;
     font-size: 1.5em;
     color: #34495e;
+}
+
+.thinking {
+    animation: thinking 1.5s infinite;
+    color: #2c3e50;
+}
+
+@keyframes thinking {
+    0% { opacity: 1; }
+    50% { opacity: 0.3; }
+    100% { opacity: 1; }
 }

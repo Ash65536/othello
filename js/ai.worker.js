@@ -4,7 +4,7 @@ const ZOBRIST_TABLE = {
     white: Array(64).fill(0).map(() => Math.floor(Math.random() * Number.MAX_SAFE_INTEGER))
 };
 
-// トランスポジションテーブル
+// トランス���ジションテーブル
 const transpositionTable = new Map();
 
 // ボードのハッシュ値を計算
@@ -24,18 +24,18 @@ function computeZobristHash(board) {
 function dynamicDepth(board) {
     const remainingMoves = board.flat().filter(cell => cell === null).length;
     if (remainingMoves <= 8) {
-        return 9;      // 終盤はより深く（深さ9）
+        return 6;      // 終盤（残り8手以下）
     } else if (remainingMoves <= 16) {
-        return 8;      // 終盤近く（深さ8）
+        return 5;      // 終盤近く（残り16手以下）
     } else if (remainingMoves <= 32) {
-        return 7;      // 中盤（深さ7）
+        return 4;      // 中盤（残り32手以下）
     }
-    return 6;          // 序盤（深さ6）
+    return 3;          // 序盤
 }
 
 // メモリ使用量を監視し、必要に応じてテーブルをクリア
 function cleanTranspositionTable() {
-    if (transpositionTable.size > 2000000) {  // 200万エントリーまで許容
+    if (transpositionTable.size > 1000000) {  // 100万エントリーを超えたらクリア
         transpositionTable.clear();
     }
 }
@@ -51,21 +51,8 @@ const CORNER_PATTERNS = {
     // その他のパターンは実際の実装時に追加
 };
 
-// 角に関する定数
-const CORNERS = [[0,0], [0,7], [7,0], [7,7]];
-const CORNER_ADJACENTS = {
-    '0,0': [[0,1], [1,0], [1,1]],
-    '0,7': [[0,6], [1,7], [1,6]],
-    '7,0': [[6,0], [7,1], [6,1]],
-    '7,7': [[6,7], [7,6], [6,6]]
-};
-
 function evaluateBoard(board, player) {
-    const opponent = player === 'black' ? 'white' : 'black';
-    let score = 0;
-    
-    // 基本の評価
-    // ...existing evaluation code...
+    // ...existing code...
 
     // 終盤に近づくほど石数の差を重視
     const remainingMoves = board.flat().filter(cell => cell === null).length;
@@ -80,9 +67,6 @@ function evaluateBoard(board, player) {
     
     // 角の支配状況をより重視
     score += evaluateCornerControl(board, player) * 100;
-
-    // 角の支配とその周辺の評価を強化
-    score += evaluateCornerStrategy(board, player, opponent) * 150;
 
     return score;
 }
@@ -127,78 +111,12 @@ function evaluateCornerControl(board, player) {
         if (board[x][y] === player) {
             score += 25;
         } else if (board[x][y] === null) {
-            // 角が空いている場合、そ���角を取れる位置にあるかを評価
+            // 角が空いている場合、その角を取れる位置にあるかを評価
             if (isValidMove(board, x, y, player)) {
                 score += 15;
             }
         }
     }
-    return score;
-}
-
-function evaluateCornerStrategy(board, player, opponent) {
-    let score = 0;
-
-    for (const [cornerX, cornerY] of CORNERS) {
-        const cornerKey = `${cornerX},${cornerY}`;
-        const adjacents = CORNER_ADJACENTS[cornerKey];
-
-        // 角が空いている場合
-        if (board[cornerX][cornerY] === null) {
-            // 相手が角を取れる状況を極めて重要視
-            if (isValidMove(board, cornerX, cornerY, opponent)) {
-                score -= 200; // 相手が角を取れる状況は大幅な減点
-            }
-            
-            // 自分が角を取れる状況は高評価
-            if (isValidMove(board, cornerX, cornerY, player)) {
-                score += 100;
-            }
-
-            // 角が空いているときは周辺の石を置くことを避ける
-            for (const [adjX, adjY] of adjacents) {
-                if (board[adjX][adjY] === player) {
-                    score -= 50; // 角が空いている状態での周辺への配置は減点
-                }
-            }
-        } 
-        // 角を自分が取っている場合
-        else if (board[cornerX][cornerY] === player) {
-            score += 150; // 角を確保している場合は高得点
-            
-            // 角を取った後は周辺の石を積極的に置く
-            for (const [adjX, adjY] of adjacents) {
-                if (board[adjX][adjY] === player) {
-                    score += 25; // 安定した石を増やす
-                }
-            }
-        }
-        // 角を相手が取っている場合
-        else {
-            score -= 150; // 角を取られている場合は大幅な減点
-            
-            // 相手の角周りの拡大を防ぐ
-            for (const [adjX, adjY] of adjacents) {
-                if (board[adjX][adjY] === null && isValidMove(board, adjX, adjY, player)) {
-                    score += 15; // 相手の展開を防ぐ手は優先
-                }
-            }
-        }
-    }
-
-    // X打ちの評価（角の斜め内側）
-    const xSquares = [[1,1], [1,6], [6,1], [6,6]];
-    for (const [x, y] of xSquares) {
-        if (board[x][y] === player) {
-            // 対応する角が空いているときはX打ちを避ける
-            const cornerX = x === 1 ? 0 : 7;
-            const cornerY = y === 1 ? 0 : 7;
-            if (board[cornerX][cornerY] === null) {
-                score -= 45;
-            }
-        }
-    }
-
     return score;
 }
 
@@ -215,43 +133,26 @@ function findBestMove(board, color) {
         if (perfectMove) return perfectMove;
     }
     
-    // 序盤のランダム選択を制限（最初の5手程度まで）
-    if (remainingMoves >= 55) {
-        // 最初の数手はランダムだが、明らかに不利な手は避ける
-        const goodMoves = moves.filter(move => {
-            // X打ちを避ける
-            if ((move[0] === 1 && move[1] === 1) || 
-                (move[0] === 1 && move[1] === 6) ||
-                (move[0] === 6 && move[1] === 1) ||
-                (move[0] === 6 && move[1] === 6)) {
-                return false;
-            }
-            // 角の隣も避ける
-            if (isNextToCorner(move[0], move[1])) {
-                return false;
-            }
-            return true;
-        });
-        
-        return goodMoves.length > 0 ? 
-            goodMoves[Math.floor(Math.random() * goodMoves.length)] : 
-            moves[Math.floor(Math.random() * moves.length)];
+    // 序盤はランダム選択
+    if (remainingMoves > 50) {
+        return moves[Math.floor(Math.random() * moves.length)];
     }
     
-    // 角を取れる場合は即座に選択
-    for (const [cornerX, cornerY] of CORNERS) {
-        if (board[cornerX][cornerY] === null && isValidMove(board, cornerX, cornerY, color)) {
-            return [cornerX, cornerY];
+    // 終盤（残り12手以下）はモンテカルロ法を使用
+    if (remainingMoves <= 12) {
+        let bestMove = null;
+        let bestWinRate = -1;
+        
+        for (const move of moves) {
+            const winRate = monteCarloSimulation(board, move, color);
+            if (winRate > bestWinRate) {
+                bestWinRate = winRate;
+                bestMove = move;
+            }
         }
+        return bestMove;
     }
-
-    // 相手が次に角を取れる手を防ぐ
-    const opponent = color === 'black' ? 'white' : 'black';
-    const dangerousCornerMoves = findDangerousCornerMoves(board, color, opponent);
-    if (dangerousCornerMoves.length > 0) {
-        return dangerousCornerMoves[0];
-    }
-
+    
     // 中盤はアルファベータ法を使用
     let bestMove = null;
     let bestScore = -Infinity;
@@ -259,27 +160,13 @@ function findBestMove(board, color) {
     for (const move of moves) {
         const newBoard = JSON.parse(JSON.stringify(board));
         applyMove(newBoard, move[0], move[1], color);
-        // 通常の深さに加えて、重要な局面ではさらに深く探索
-        const extraDepth = isImportantPosition(newBoard) ? 2 : 0;
-        const score = alphaBeta(newBoard, depth + extraDepth, -Infinity, Infinity, false, color);
+        const score = alphaBeta(newBoard, depth, -Infinity, Infinity, false, color);
         if (score > bestScore) {
             bestScore = score;
             bestMove = move;
         }
     }
     return bestMove;
-}
-
-// 角の隣かどうかをチェックする関数を追加
-function isNextToCorner(row, col) {
-    const nextToCornerPositions = [
-        [0,1], [1,0], [1,1],      // 左上角の隣
-        [0,6], [1,7], [1,6],      // 右上角の隣
-        [6,0], [7,1], [6,1],      // 左下角の隣
-        [6,7], [7,6], [6,6]       // 右下角の隣
-    ];
-    
-    return nextToCornerPositions.some(([r, c]) => r === row && c === col);
 }
 
 function findPerfectMove(board, color) {
@@ -290,8 +177,8 @@ function findPerfectMove(board, color) {
     for (const move of moves) {
         const newBoard = JSON.parse(JSON.stringify(board));
         applyMove(newBoard, move[0], move[1], color);
-        // 終盤の完全読みの深さを増やす
-        const score = alphaBeta(newBoard, 24, -Infinity, Infinity, false, color);
+        // 終盤は完全読み（深さ制限なし）
+        const score = alphaBeta(newBoard, 20, -Infinity, Infinity, false, color);
         if (score > bestScore) {
             bestScore = score;
             bestMove = move;
@@ -300,31 +187,13 @@ function findPerfectMove(board, color) {
     return bestMove;
 }
 
-function findDangerousCornerMoves(board, player, opponent) {
-    const preventiveMoves = [];
-    
-    for (const [cornerX, cornerY] of CORNERS) {
-        if (board[cornerX][cornerY] !== null) continue;
-        
-        // 相手が次に角を取れる状況をチェック
-        const testBoard = JSON.parse(JSON.stringify(board));
-        if (isValidMove(testBoard, cornerX, cornerY, opponent)) {
-            // この状況を防げる手を探す
-            const moves = findPossibleMoves(board, player);
-            for (const move of moves) {
-                const simBoard = JSON.parse(JSON.stringify(board));
-                applyMove(simBoard, move[0], move[1], player);
-                if (!isValidMove(simBoard, cornerX, cornerY, opponent)) {
-                    preventiveMoves.push(move);
-                }
-            }
-        }
-    }
-    
-    return preventiveMoves;
-}
-
+// 探索の打ち切り判定を緩和
 function alphaBeta(board, depth, alpha, beta, maximizingPlayer, player) {
+    // メモリ使用量が危険な場合のみ打ち切り
+    if (performance.memory && performance.memory.usedJSHeapSize > 0.8 * performance.memory.jsHeapSizeLimit) {
+        return evaluateBoard(board, player);
+    }
+
     const hash = computeZobristHash(board);
     const tableEntry = transpositionTable.get(hash);
     
@@ -333,7 +202,6 @@ function alphaBeta(board, depth, alpha, beta, maximizingPlayer, player) {
         return tableEntry.score;
     }
 
-    // 終了条件をより詳細に
     if (depth === 0 || (!hasValidMove(board, 'black') && !hasValidMove(board, 'white'))) {
         const score = evaluateBoard(board, player);
         // 評価値をキャッシュ
@@ -342,18 +210,10 @@ function alphaBeta(board, depth, alpha, beta, maximizingPlayer, player) {
     }
 
     const opponent = player === 'white' ? 'black' : 'white';
-    const moves = findPossibleMoves(board, maximizingPlayer ? player : opponent);
-    
-    // 手の並び替えを実施（より良い手を先に探索）
-    moves.sort((a, b) => {
-        const scoreA = getQuickEvaluation(board, a, player);
-        const scoreB = getQuickEvaluation(board, b, player);
-        return scoreB - scoreA;
-    });
 
     if (maximizingPlayer) {
         let maxEval = -Infinity;
-        for (const move of moves) {
+        for (const move of findPossibleMoves(board, player)) {
             const newBoard = JSON.parse(JSON.stringify(board));
             applyMove(newBoard, move[0], move[1], player);
             const evaluation = alphaBeta(newBoard, depth - 1, alpha, beta, false, player);
@@ -368,7 +228,7 @@ function alphaBeta(board, depth, alpha, beta, maximizingPlayer, player) {
         return maxEval;
     } else {
         let minEval = Infinity;
-        for (const move of moves) {
+        for (const move of findPossibleMoves(board, opponent)) {
             const newBoard = JSON.parse(JSON.stringify(board));
             applyMove(newBoard, move[0], move[1], opponent);
             const evaluation = alphaBeta(newBoard, depth - 1, alpha, beta, true, player);
@@ -382,23 +242,6 @@ function alphaBeta(board, depth, alpha, beta, maximizingPlayer, player) {
         transpositionTable.set(hash, { depth, score: minEval });
         return minEval;
     }
-}
-
-// 簡易評価関数（手の並び替え用）
-function getQuickEvaluation(board, move, player) {
-    let score = 0;
-    
-    // 角は最高評価
-    if ((move[0] === 0 || move[0] === 7) && (move[1] === 0 || move[1] === 7)) {
-        score += 100;
-    }
-    
-    // 角の隣は低評価
-    if (isNextToCorner(move[0], move[1])) {
-        score -= 50;
-    }
-    
-    return score;
 }
 
 function monteCarloSimulation(board, move, player, simulations = 100) {
@@ -443,3 +286,9 @@ function evaluateGameWinner(board) {
     if (white > black) return 'white';
     return 'draw';
 }
+
+self.onmessage = function(e) {
+    const { board, color } = e.data;
+    const move = findBestMove(board, color);
+    self.postMessage({ move });
+};
