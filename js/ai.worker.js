@@ -128,13 +128,13 @@ function computeZobristHash(board) {
 function dynamicDepth(board) {
     const remainingMoves = board.flat().filter(cell => cell === null).length;
     if (remainingMoves <= 8) {
-        return 6;      // 終盤（残り8手以下）
+        return 8;      // 終盤（残り8手以下）
     } else if (remainingMoves <= 16) {
-        return 5;      // 終盤近く（残り16手以下）
+        return 6;      // 終盤近く（残り16手以下）
     } else if (remainingMoves <= 32) {
-        return 4;      // 中盤（残り32手以下）
+        return 5;      // 中盤（残り32手以下）
     }
-    return 3;          // 序盤
+    return 4;          // 序盤
 }
 
 // メモリ使用量を監視し、必要に応じてテーブルをクリア
@@ -242,34 +242,23 @@ function findBestMove(board, color) {
         return moves[Math.floor(Math.random() * moves.length)];
     }
     
-    // 終盤（残り12手以下）はモンテカルロ法を使用
-    if (remainingMoves <= 12) {
-        let bestMove = null;
-        let bestWinRate = -1;
-        
-        for (const move of moves) {
-            const winRate = monteCarloSimulation(board, move, color);
-            if (winRate > bestWinRate) {
-                bestWinRate = winRate;
-                bestMove = move;
-            }
-        }
-        return bestMove;
-    }
-    
-    // 中盤はアルファベータ法を使用
     let bestMove = null;
     let bestScore = -Infinity;
+    let alpha = -Infinity;
+    let beta = Infinity;
     
     for (const move of moves) {
         const newBoard = JSON.parse(JSON.stringify(board));
         applyMove(newBoard, move[0], move[1], color);
-        const score = alphaBeta(newBoard, depth, -Infinity, Infinity, false, color);
+        const score = -negaScout(newBoard, depth, -beta, -alpha, color === 'black' ? 'white' : 'black');
+        
         if (score > bestScore) {
             bestScore = score;
             bestMove = move;
         }
+        alpha = Math.max(alpha, score);
     }
+    
     return bestMove;
 }
 
@@ -389,4 +378,54 @@ function evaluateGameWinner(board) {
     if (black > white) return 'black';
     if (white > black) return 'white';
     return 'draw';
+}
+
+// NegaScout探索を実装
+function negaScout(board, depth, alpha, beta, color) {
+    if (depth === 0 || (!hasValidMove(board, 'black') && !hasValidMove(board, 'white'))) {
+        return evaluateBoard(board, color);
+    }
+
+    const hash = computeZobristHash(board);
+    const tableEntry = transpositionTable.get(hash);
+    if (tableEntry && tableEntry.depth >= depth) {
+        return tableEntry.score;
+    }
+
+    const moves = findPossibleMoves(board, color);
+    if (moves.length === 0) {
+        return -negaScout(board, depth - 1, -beta, -alpha, color === 'black' ? 'white' : 'black');
+    }
+
+    let firstChild = true;
+    let score = -Infinity;
+    
+    for (const move of moves) {
+        const newBoard = JSON.parse(JSON.stringify(board));
+        applyMove(newBoard, move[0], move[1], color);
+        
+        let currentScore;
+        if (firstChild) {
+            currentScore = -negaScout(newBoard, depth - 1, -beta, -alpha, color === 'black' ? 'white' : 'black');
+        } else {
+            // Null Window Search
+            currentScore = -negaScout(newBoard, depth - 1, -(alpha + 1), -alpha, color === 'black' ? 'white' : 'black');
+            if (currentScore > alpha && currentScore < beta) {
+                // Re-search with full window
+                currentScore = -negaScout(newBoard, depth - 1, -beta, -currentScore, color === 'black' ? 'white' : 'black');
+            }
+        }
+
+        score = Math.max(score, currentScore);
+        alpha = Math.max(alpha, score);
+        
+        if (alpha >= beta) {
+            break;
+        }
+        
+        firstChild = false;
+    }
+
+    transpositionTable.set(hash, { depth, score });
+    return score;
 }

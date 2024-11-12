@@ -79,7 +79,7 @@ def handle_endgame(board, color):
     return parallel_search(board, color, 5)
 
 def handle_middlegame(board, color):
-    return parallel_search(board, color, 4)
+    return parallel_negaScout(board, color, 4)
 
 def parallel_search(board, color, depth):
     with ProcessPoolExecutor(max_workers=mp.cpu_count()) as executor:
@@ -119,6 +119,46 @@ def parallel_search(board, color, depth):
                 if score > best_score:
                     best_score = score
                     best_move = move
+            except TimeoutError:
+                continue
+
+        return best_move
+
+def parallel_negaScout(board, color, depth):
+    with ProcessPoolExecutor(max_workers=mp.cpu_count()) as executor:
+        moves = find_possible_moves(board, color)
+        
+        if not moves:
+            return None
+
+        futures = []
+        for move in moves:
+            new_board = copy.deepcopy(board)
+            apply_move(new_board, move[0], move[1], color)
+            future = executor.submit(
+                negaScout,
+                new_board,
+                depth - 1,
+                float('-inf'),
+                float('inf'),
+                'black' if color == 'white' else 'white'
+            )
+            futures.append((move, future))
+
+        best_move = None
+        best_score = float('-inf')
+        alpha = float('-inf')
+        beta = float('inf')
+        
+        for move, future in futures:
+            try:
+                score = -future.result(timeout=10)
+                if score > best_score:
+                    best_score = score
+                    best_move = move
+                alpha = max(alpha, score)
+                if alpha >= beta:
+                    break
             except TimeoutError:
                 continue
 
@@ -173,23 +213,63 @@ def alpha_beta(board, depth, alpha, beta, maximizing_player, player):
                 break
         return min_eval
 
+def negaScout(board, depth, alpha, beta, color):
+    if depth == 0 or not has_valid_move(board, 'black') and not has_valid_move(board, 'white'):
+        return evaluate_board(board, color)
+
+    board_hash = str(board)
+    cache_entry = trans_table.get(board_hash)
+    if cache_entry and cache_entry.get('depth', 0) >= depth:
+        return cache_entry['score']
+
+    moves = find_possible_moves(board, color)
+    if not moves:
+        return -negaScout(board, depth - 1, -beta, -alpha, 'black' if color == 'white' else 'white')
+
+    first_child = True
+    max_score = float('-inf')
+    
+    for move in moves:
+        new_board = copy.deepcopy(board)
+        apply_move(new_board, move[0], move[1], color)
+        
+        if first_child:
+            score = -negaScout(new_board, depth - 1, -beta, -alpha, 'black' if color == 'white' else 'white')
+        else:
+            # Null Window Search
+            score = -negaScout(new_board, depth - 1, -alpha - 1, -alpha, 'black' if color == 'white' else 'white')
+            if alpha < score < beta:
+                # Re-search with full window
+                score = -negaScout(new_board, depth - 1, -beta, -score, 'black' if color == 'white' else 'white')
+
+        max_score = max(max_score, score)
+        alpha = max(alpha, score)
+        
+        if alpha >= beta:
+            break
+            
+        first_child = False
+
+    trans_table.set(board_hash, {'depth': depth, 'score': max_score})
+    return max_score
+
 def evaluate_board(board, player):
-    # 評価関数を強化
+    # 評価関数の強化
     weights = np.array([
-        [100, -20,  10,   5,   5,  10, -20, 100],
-        [-20, -50,  -2,  -2,  -2,  -2, -50, -20],
-        [ 10,  -2,   1,   1,   1,   1,  -2,  10],
-        [  5,  -2,   1,   0,   0,   1,  -2,   5],
-        [  5,  -2,   1,   0,   0,   1,  -2,   5],
-        [ 10,  -2,   1,   1,   1,   1,  -2,  10],
-        [-20, -50,  -2,  -2,  -2,  -2, -50, -20],
-        [100, -20,  10,   5,   5,  10, -20, 100]
+        [120, -20,  20,  5,  5,  20, -20, 120],
+        [-20, -40,  -5, -5, -5,  -5, -40, -20],
+        [ 20,  -5,  15,  3,  3,  15,  -5,  20],
+        [  5,  -5,   3,  3,  3,   3,  -5,   5],
+        [  5,  -5,   3,  3,  3,   3,  -5,   5],
+        [ 20,  -5,  15,  3,  3,  15,  -5,  20],
+        [-20, -40,  -5, -5, -5,  -5, -40, -20],
+        [120, -20,  20,  5,  5,  20, -20, 120]
     ])
     
     opponent = 'black' if player == 'white' else 'white'
     score = 0
     
-    # 盤面の評価
+    # 盤面評価
     for i in range(8):
         for j in range(8):
             if board[i][j] == player:
@@ -197,19 +277,51 @@ def evaluate_board(board, player):
             elif board[i][j] == opponent:
                 score -= weights[i][j]
     
-    # 機動力の評価
+    # 機動力の評価（より重視）
     player_moves = len(find_possible_moves(board, player))
     opponent_moves = len(find_possible_moves(board, opponent))
-    score += (player_moves - opponent_moves) * 5
+    score += (player_moves - opponent_moves) * 10
     
-    # 終盤評価の追加
+    # 終盤評価の強化
     empty_cells = sum(row.count(None) for row in board)
-    if empty_cells <= 8:
+    if empty_cells <= 12:  # 終盤判定を12手に拡大
         player_stones = sum(row.count(player) for row in board)
         opponent_stones = sum(row.count(opponent) for row in board)
-        score += (player_stones - opponent_stones) * 10
+        score += (player_stones - opponent_stones) * (16 - empty_cells)  # 残り手数に応じて重み付け
+    
+    # 安定石の評価を追加
+    score += evaluate_stable_stones(board, player) * 30
     
     return score
+
+def evaluate_stable_stones(board, player):
+    stable_count = 0
+    corners = [(0,0), (0,7), (7,0), (7,7)]
+    
+    # 角の安定石評価
+    for corner in corners:
+        if board[corner[0]][corner[1]] == player:
+            stable_count += 1
+            # 角から伸びる安定石の評価
+            stable_count += evaluate_stable_line_from_corner(board, corner[0], corner[1], player)
+    
+    return stable_count
+
+def evaluate_stable_line_from_corner(board, row, col, player):
+    stable_count = 0
+    directions = [(0,1), (1,0), (1,1)] if row == 0 and col == 0 else \
+                 [(0,-1), (1,0), (1,-1)] if row == 0 and col == 7 else \
+                 [(-1,0), (0,1), (-1,1)] if row == 7 and col == 0 else \
+                 [(-1,0), (0,-1), (-1,-1)]
+    
+    for dx, dy in directions:
+        x, y = row + dx, col + dy
+        while 0 <= x < 8 and 0 <= y < 8 and board[x][y] == player:
+            stable_count += 1
+            x += dx
+            y += dy
+    
+    return stable_count
 
 def find_possible_moves(board, color):
     moves = []
