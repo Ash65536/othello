@@ -204,6 +204,17 @@ document.addEventListener('DOMContentLoaded', () => {
     function endGame() {
         const { black, white } = countStones(board);
         let result = `ゲーム終了！ 黒: ${black}, 白: ${white}`;
+        let winner = black > white ? 'black' : white > black ? 'white' : 'draw';
+        
+        // サーバーに結果を送信
+        fetch(`${baseUrl}/game_end`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ winner })
+        });
+
         if (black > white) {
             result += ' - 黒の勝ち！';
         } else if (white > black) {
@@ -323,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // 角の隣を避ける
             if ((x === 0 || x === 7) && (y === 1 || y === 6)) return false;
             if ((x === 1 || x === 6) && (y === 0 || y === 7)) return false;
-            // X打ちを避ける
+            // X打ちを避け���
             if ((x === 1 || x === 6) && (y === 1 || y === 6)) return false;
             return true;
         });

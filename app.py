@@ -1,13 +1,18 @@
 from flask import Flask, request, jsonify
 from random import choice
+import random
 import copy
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 from flask_cors import CORS
+from model import OthelloModel
 
 app = Flask(__name__)
 CORS(app)  # Add this line after creating the Flask app
+
+model = OthelloModel()
+game_history = []
 
 # トランスポジションテーブル（プロセス間で共有）
 class TranspositionTable:
@@ -32,21 +37,45 @@ def ai_move():
     color = data.get('color', 'white')
     game_phase = get_game_phase(board)
     
-    # 状況に応じた戦略選択
-    if game_phase == 'opening':
-        move = handle_opening(board, color)
-    elif game_phase == 'endgame':
-        move = handle_endgame(board, color)
+    # ML予測を試みる
+    possible_moves = find_possible_moves(board, color)
+    ml_move = model.predict_move(board, possible_moves)
+    
+    if ml_move and random.random() < 0.7:  # 70%の確率でML予測を使用
+        move = ml_move
     else:
-        move = handle_middlegame(board, color)
-        
-    if move is None:
-        return jsonify({"move": None})
+        # 通常の探索を実行
+        if game_phase == 'opening':
+            move = handle_opening(board, color)
+        elif game_phase == 'endgame':
+            move = handle_endgame(board, color)
+        else:
+            move = handle_middlegame(board, color)
+    
+    if move:
+        game_history.append(({
+            'board': board,
+            'current_player': color
+        }, move))
     
     return jsonify({
-        "move": {"row": move[0], "col": move[1]},
+        "move": {"row": move[0], "col": move[1]} if move else None,
         "evaluation": evaluate_board(board, color)
     })
+
+@app.route('/game_end', methods=['POST'])
+def game_end():
+    data = request.json
+    winner = data.get('winner')
+    
+    # ゲーム履歴を学習データとして保存
+    model.store_game_data(game_history, winner)
+    game_history.clear()
+    
+    # 定期的に学習を実行
+    model.train()
+    
+    return jsonify({"status": "success"})
 
 def get_game_phase(board):
     empty_count = sum(row.count(None) for row in board)
