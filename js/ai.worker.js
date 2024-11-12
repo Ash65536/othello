@@ -1,10 +1,74 @@
+let baseUrl = 'http://localhost:5000';
+
+self.onmessage = function(e) {
+    const { board, color } = e.data;
+    
+    fetch(`${baseUrl}/ai_move`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+            board: board,
+            color: color,
+            game_state: 'in_progress'  // 追加: ゲーム状態の送信
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        self.postMessage({ move: data.move ? [data.move.row, data.move.col] : null });
+    })
+    .catch(error => {
+        console.error('AI Error:', error);
+        self.postMessage({ move: null });
+    });
+};
+
+// Fallback utilities in case server fails
+function findPossibleMoves(board, color) {
+    const moves = [];
+    for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+            if (isValidMove(board, i, j, color)) {
+                moves.push([i, j]);
+            }
+        }
+    }
+    return moves;
+}
+
+function isValidMove(board, row, col, color) {
+    if (board[row][col] !== null) return false;
+    const directions = [
+        [-1, 0], [1, 0], [0, -1], [0, 1],
+        [-1, -1], [-1, 1], [1, -1], [1, 1]
+    ];
+    const opponent = color === 'black' ? 'white' : 'black';
+    
+    for (const [dx, dy] of directions) {
+        let x = row + dx, y = col + dy;
+        let hasOpponent = false;
+        
+        while (x >= 0 && x < 8 && y >= 0 && y < 8 && board[x][y] === opponent) {
+            x += dx;
+            y += dy;
+            hasOpponent = true;
+        }
+        
+        if (hasOpponent && x >= 0 && x < 8 && y >= 0 && y < 8 && board[x][y] === color) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Zobrist乱数テーブルの初期化
 const ZOBRIST_TABLE = {
     black: Array(64).fill(0).map(() => Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)),
     white: Array(64).fill(0).map(() => Math.floor(Math.random() * Number.MAX_SAFE_INTEGER))
 };
 
-// トランス���ジションテーブル
+// トランスポジションテーブル
 const transpositionTable = new Map();
 
 // ボードのハッシュ値を計算
@@ -286,9 +350,3 @@ function evaluateGameWinner(board) {
     if (white > black) return 'white';
     return 'draw';
 }
-
-self.onmessage = function(e) {
-    const { board, color } = e.data;
-    const move = findBestMove(board, color);
-    self.postMessage({ move });
-};

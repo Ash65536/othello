@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentPlayer = 'black';
     let isProcessing = false;  // 追加: 処理中フラグ
     let aiWorker = null;
+    let lastMove = null;  // Add this line to track the last move
 
     // 初期配置
     board[3][3] = 'white';
@@ -46,6 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (isValidMove(board, row, col, currentPlayer)) {
             isProcessing = true;  // 処理開始
+            lastMove = [row, col];  // Add this line to update lastMove
             const flippedStones = applyMove(board, row, col, currentPlayer);
             
             const animationPromises = flippedStones.map(([x, y]) => {
@@ -120,6 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // AIの手を別関数として実装
     function handleAIMove(row, col) {
         const flippedStones = applyMove(board, row, col, 'white');
+        lastMove = [row, col];  // Add this line to update lastMove when AI moves
         const animationPromises = flippedStones.map(([x, y]) => {
             return new Promise(resolve => {
                 const index = x * 8 + y;
@@ -243,26 +246,30 @@ document.addEventListener('DOMContentLoaded', () => {
         isProcessing = true;
         showLoading();
         
-        // タイムアウト時も通常の探索を使用
+        // ゲームの状態を含めてAIに送信
+        const gameState = {
+            board: board,
+            color: 'white',
+            counts: countStones(board),
+            lastMove: lastMove || null  // Update this line to handle null case
+        };
+        
         const timeoutId = setTimeout(() => {
             if (aiWorker) {
                 aiWorker.terminate();
                 aiWorker = null;
                 hideLoading();
-                // 通常の探索を浅い深さで実行
-                const move = findPriorityMove(board, 'white');
-                if (move) {
-                    handleAIMove(move[0], move[1]);
-                } else {
-                    handlePass();
-                }
+                handleFallbackAI();
             }
         }, 10000);
 
         aiWorker.onmessage = function(e) {
-            clearTimeout(timeoutId); // タイムアウトをキャンセル
-            const { move } = e.data;
+            clearTimeout(timeoutId);
+            const { move, evaluation } = e.data;
+            
             if (move) {
+                // 評価値に基づいてメッセージを表示
+                updateAIThinkingMessage(evaluation);
                 handleAIMove(move[0], move[1]);
             } else {
                 handlePass();
@@ -270,7 +277,34 @@ document.addEventListener('DOMContentLoaded', () => {
             hideLoading();
         };
 
-        aiWorker.postMessage({ board, color: 'white' });
+        aiWorker.postMessage(gameState);
+    }
+
+    function handleFallbackAI() {
+        // フォールバックAIロジック（サーバーがタイムアウトした場合）
+        const moves = findPossibleMoves(board, 'white');
+        if (moves.length > 0) {
+            const priorityMove = findPriorityMove(board, 'white');
+            handleAIMove(priorityMove[0], priorityMove[1]);
+        } else {
+            handlePass();
+        }
+    }
+
+    function updateAIThinkingMessage(evaluation) {
+        let message = "AIの評価: ";
+        if (evaluation > 500) {
+            message += "優勢です";
+        } else if (evaluation > 200) {
+            message += "やや優勢です";
+        } else if (evaluation < -500) {
+            message += "劣勢です";
+        } else if (evaluation < -200) {
+            message += "やや劣勢です";
+        } else {
+            message += "互角です";
+        }
+        messageElement.textContent = message;
     }
 
     // 優先順位に基づく手の選択（タイムアウト時用）
