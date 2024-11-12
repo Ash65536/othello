@@ -4,12 +4,16 @@ self.onmessage = async function(e) {
     const { board, color } = e.data;
     
     try {
-        // サーバーへのリクエスト
+        // CORSヘッダーを追加
         const response = await fetch(`${baseUrl}/ai_move`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'POST',
+                'Access-Control-Allow-Headers': 'Content-Type'
             },
+            mode: 'cors', // CORSモードを明示的に指定
             body: JSON.stringify({ 
                 board: board,
                 color: color
@@ -27,15 +31,21 @@ self.onmessage = async function(e) {
                 evaluation: data.evaluation
             });
         } else {
-            // サーバーから手が返ってこない場合はローカルで計算
+            // フォールバック処理
             const move = findLocalBestMove(board, color);
-            self.postMessage({ move: move });
+            self.postMessage({ 
+                move: move,
+                evaluation: 0
+            });
         }
     } catch (error) {
         console.error('AI Error:', error);
-        // エラー時はローカルの処理で対応
+        // エラー時のフォールバック処理
         const move = findLocalBestMove(board, color);
-        self.postMessage({ move: move });
+        self.postMessage({ 
+            move: move,
+            evaluation: 0 
+        });
     }
 };
 

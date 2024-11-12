@@ -9,12 +9,18 @@ from flask_cors import CORS
 from model import OthelloModel
 
 app = Flask(__name__)
-CORS(app)  # Add this line after creating the Flask app
+CORS(app, resources={
+    r"/*": {
+        "origins": "*",
+        "methods": ["OPTIONS", "POST"],
+        "allow_headers": ["Content-Type"]
+    }
+})  # Add this line after creating the Flask app
 
 model = OthelloModel()
 game_history = []
 
-# トランスポジションテーブル（プロセス間で共有）
+# トランス��ジションテーブル（プロセス間で共有）
 class TranspositionTable:
     def __init__(self):
         self.table = mp.Manager().dict()
