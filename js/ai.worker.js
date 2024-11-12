@@ -1,28 +1,68 @@
 let baseUrl = 'http://localhost:5000';
 
-self.onmessage = function(e) {
+self.onmessage = async function(e) {
     const { board, color } = e.data;
     
-    fetch(`${baseUrl}/ai_move`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ 
-            board: board,
-            color: color,
-            game_state: 'in_progress'  // 追加: ゲーム状態の送信
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        self.postMessage({ move: data.move ? [data.move.row, data.move.col] : null });
-    })
-    .catch(error => {
+    try {
+        // サーバーへのリクエスト
+        const response = await fetch(`${baseUrl}/ai_move`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                board: board,
+                color: color
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Server response was not ok');
+        }
+
+        const data = await response.json();
+        if (data.move) {
+            self.postMessage({ 
+                move: [data.move.row, data.move.col],
+                evaluation: data.evaluation
+            });
+        } else {
+            // サーバーから手が返ってこない場合はローカルで計算
+            const move = findLocalBestMove(board, color);
+            self.postMessage({ move: move });
+        }
+    } catch (error) {
         console.error('AI Error:', error);
-        self.postMessage({ move: null });
-    });
+        // エラー時はローカルの処理で対応
+        const move = findLocalBestMove(board, color);
+        self.postMessage({ move: move });
+    }
 };
+
+function findLocalBestMove(board, color) {
+    const moves = findPossibleMoves(board, color);
+    if (moves.length === 0) return null;
+
+    // 角を優先
+    for (const [cornerX, cornerY] of [[0,0], [0,7], [7,0], [7,7]]) {
+        const cornerMove = moves.find(([x, y]) => x === cornerX && y === cornerY);
+        if (cornerMove) return cornerMove;
+    }
+
+    // 危険な手を避ける
+    const safeMoves = moves.filter(([x, y]) => {
+        if ((x === 0 || x === 7) && (y === 1 || y === 6)) return false;
+        if ((x === 1 || x === 6) && (y === 0 || y === 7)) return false;
+        if ((x === 1 || x === 6) && (y === 1 || y === 6)) return false;
+        return true;
+    });
+
+    if (safeMoves.length > 0) {
+        return safeMoves[0];
+    }
+
+    return moves[0];
+}
 
 // Fallback utilities in case server fails
 function findPossibleMoves(board, color) {
