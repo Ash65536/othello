@@ -9,7 +9,63 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastMove = null;  // Add this line to track the last move
     let currentDifficulty = 'normal';  // デフォルトの難易度
     const difficultyButtons = document.querySelectorAll('.difficulty-btn');
+    let playerColor = 'black';  // プレイヤーの色
+    let setupComplete = false;  // セットアップ完了フラグ
     
+    // セットアップ画面の要素
+    const gameSetup = document.getElementById('gameSetup');
+    const gameBoard = document.getElementById('gameBoard');
+    const startGameBtn = document.getElementById('startGameBtn');
+    const turnButtons = document.querySelectorAll('.turn-btn');
+
+    // 手番選択の処理
+    turnButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            turnButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (btn.dataset.turn === 'random') {
+                playerColor = Math.random() < 0.5 ? 'black' : 'white';
+            } else {
+                playerColor = btn.dataset.turn;
+            }
+        });
+    });
+
+    // ゲーム開始ボタンの処理
+    startGameBtn.addEventListener('click', () => {
+        if (!document.querySelector('.difficulty-btn.active')) {
+            alert('AIの強さを選択してください');
+            return;
+        }
+        if (!document.querySelector('.turn-btn.active')) {
+            alert('手番を選択してください');
+            return;
+        }
+
+        setupComplete = true;
+        gameSetup.style.display = 'none';
+        gameBoard.style.display = 'flex';
+        startGame();
+    });
+
+    function startGame() {
+        // ボードの初期化
+        board = createBoard();
+        board[3][3] = board[4][4] = 'white';
+        board[3][4] = board[4][3] = 'black';
+        currentPlayer = 'black';
+        isProcessing = false;
+        
+        renderBoard();
+
+        // AIが先手の場合（プレイヤーが後手の場合）
+        if (currentPlayer !== playerColor) {
+            setTimeout(() => {
+                handleAITurn();
+            }, 500);
+        }
+    }
+
     // 難易度選択の処理
     difficultyButtons.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -68,7 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleCellClick(row, col) {
-        // タッチデバイスでのダブルタップ防止
+        if (!setupComplete) return;
         if (isTouchDevice) {
             const now = Date.now();
             if (now - touchStartTime < 300) {
@@ -77,26 +133,25 @@ document.addEventListener('DOMContentLoaded', () => {
             touchStartTime = now;
         }
 
-        // 処理中は操作を受け付けない
-        if (isProcessing || currentPlayer === 'white') return;
+        // プレイヤーの手番でない場合や処理中は操作を受け付けない
+        if (isProcessing || currentPlayer !== playerColor) return;
 
         if (isValidMove(board, row, col, currentPlayer)) {
-            isProcessing = true;  // 処理開始
-            lastMove = [row, col];  // Add this line to update lastMove
+            isProcessing = true;
+            lastMove = [row, col];
             const flippedStones = applyMove(board, row, col, currentPlayer);
             
+            // アニメーション処理
             const animationPromises = flippedStones.map(([x, y]) => {
                 return new Promise(resolve => {
                     const index = x * 8 + y;
                     const cell = document.querySelector(`.board .cell:nth-child(${index + 1})`);
                     const stone = cell.querySelector('.stone');
                     if (stone) {
-                        // 現在の色に基づいて適切なアニメーションクラスを追加
                         const fromColor = stone.classList.contains('black') ? 'black-to-white' : 'white-to-black';
                         stone.classList.add(fromColor);
                         setTimeout(() => {
                             stone.classList.remove(fromColor);
-                            // クラスを更新して新しい色を設定
                             stone.classList.remove('black', 'white');
                             stone.classList.add(currentPlayer);
                             resolve();
@@ -110,14 +165,14 @@ document.addEventListener('DOMContentLoaded', () => {
             Promise.all(animationPromises).then(() => {
                 currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
                 renderBoard();
-                
+
                 // AIの手番の処理
-                if (currentPlayer === 'white') {
+                if (currentPlayer !== playerColor) {
                     setTimeout(() => {
                         handleAITurn();
                     }, 500);
                 } else {
-                    isProcessing = false;  // プレイヤーの手番に戻る時に処理完了
+                    isProcessing = false;
                 }
             });
         }
@@ -165,25 +220,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     endGame();
                     return;
                 }
-                // 相手もパスの場合は元のプレイヤーに戻す
                 currentPlayer = passingPlayer;
             }
 
-            // AIの手番の場合
-            if (currentPlayer === 'white') {
+            // 現在のプレイヤーがAIの場合
+            if (currentPlayer !== playerColor) {
                 handleAITurn();
             } else {
-                // プレイヤーの手番の場合
                 isProcessing = false;
-                renderBoard(); // ボードを再描画して有効な手を表示
+                renderBoard();
             }
         }, 1000);
     }
 
-    // AIの手を別関数として実装
+    // AIの���を別関数として実装
     function handleAIMove(row, col) {
-        const flippedStones = applyMove(board, row, col, 'white');
-        lastMove = [row, col];  // Add this line to update lastMove when AI moves
+        const flippedStones = applyMove(board, row, col, currentPlayer);
+        lastMove = [row, col];
+
         const animationPromises = flippedStones.map(([x, y]) => {
             return new Promise(resolve => {
                 const index = x * 8 + y;
@@ -195,7 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     setTimeout(() => {
                         stone.classList.remove(fromColor);
                         stone.classList.remove('black', 'white');
-                        stone.classList.add('white');
+                        stone.classList.add(currentPlayer);
                         resolve();
                     }, 500);
                 } else {
@@ -205,16 +259,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         Promise.all(animationPromises).then(() => {
-            currentPlayer = 'black';
+            currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
             
-            // パスが必要か確認
             if (!hasValidMove(board, currentPlayer)) {
-                if (!hasValidMove(board, 'white')) {
+                if (!hasValidMove(board, currentPlayer === 'black' ? 'white' : 'black')) {
                     endGame();
                 } else {
                     handlePass();
-                    return; // パスの場合は以降の処理をスキップ
                 }
+                return;
             }
 
             renderBoard();
@@ -432,7 +485,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // 角の隣を避ける
             if ((x === 0 || x === 7) && (y === 1 || y === 6)) return false;
             if ((x === 1 || x === 6) && (y === 0 || y === 7)) return false;
-            // X打ちを避け��
+            // X打ちを避ける
             if ((x === 1 || x === 6) && (y === 1 || y === 6)) return false;
             return true;
         });
@@ -441,30 +494,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function restartGame() {
-        // ボードの初期化
-        board = createBoard();
-        board[3][3] = 'white';
-        board[3][4] = 'black';
-        board[4][3] = 'black';
-        board[4][4] = 'white';
-        
-        // 状態のリセット
-        currentPlayer = 'black';
-        isProcessing = false;
-        lastMove = null;
-        
-        // AIワーカーのクリーンアップ
+        gameBoard.style.display = 'none';
+        gameSetup.style.display = 'flex';
+        setupComplete = false;
         if (aiWorker) {
             aiWorker.terminate();
             aiWorker = null;
         }
-        
-        // UIの更新
-        messageElement.textContent = '';
-        restartButton.style.display = 'none';
-        
-        // ボードの再描画
-        renderBoard();
     }
 
     // リスタートボタンのイベントリスナー

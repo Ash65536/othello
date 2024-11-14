@@ -1,8 +1,11 @@
-
 import numpy as np
 from sklearn.neural_network import MLPRegressor
 import joblib
 import os
+
+# モデル保存ディレクトリの確認と作成
+model_dir = os.path.dirname(os.path.abspath(__file__))
+model_path = os.path.join(model_dir, 'othello_model.joblib')
 
 # モデルの初期化
 initial_model = MLPRegressor(
@@ -18,7 +21,9 @@ y = np.random.rand(100)       # 教師データ
 # モデルの初期学習
 initial_model.fit(X, y)
 
-# モデルの保存
-if not os.path.exists('model'):
-    os.makedirs('model')
-joblib.dump(initial_model, 'model/othello_model.joblib')
+# モデルの保存（絶対パスを使用）
+try:
+    joblib.dump(initial_model, model_path)
+    print(f"Model successfully saved to {model_path}")
+except Exception as e:
+    print(f"Error saving model: {e}")

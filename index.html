@@ -9,16 +9,38 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="difficulty-selector">
-        <button class="difficulty-btn" data-level="easy">かんたん</button>
-        <button class="difficulty-btn" data-level="normal">ふつう</button>
-        <button class="difficulty-btn" data-level="hard">つよい</button>
-        <button class="difficulty-btn" data-level="expert">ゲキムズ</button>
-        <button class="difficulty-btn" data-level="god">神</button>
+    <div id="gameSetup" class="setup-screen">
+        <div class="setup-container">
+            <h2>ゲーム設定</h2>
+            <div class="setup-section">
+                <h3>AIの強さ</h3>
+                <div class="difficulty-selector">
+                    <button class="difficulty-btn" data-level="easy">かんたん</button>
+                    <button class="difficulty-btn" data-level="normal">ふつう</button>
+                    <button class="difficulty-btn" data-level="hard">つよい</button>
+                    <button class="difficulty-btn" data-level="expert">ゲキムズ</button>
+                    <button class="difficulty-btn" data-level="god">神</button>
+                    <button class="difficulty-btn" data-level="dqn">AI</button>
+                </div>
+            </div>
+            <div class="setup-section">
+                <h3>手番を選択</h3>
+                <div class="turn-selector">
+                    <button class="turn-btn" data-turn="black">先手（黒）</button>
+                    <button class="turn-btn" data-turn="white">後手（白）</button>
+                    <button class="turn-btn" data-turn="random">ランダム</button>
+                </div>
+            </div>
+            <button id="startGameBtn" class="start-btn">ゲーム開始</button>
+        </div>
     </div>
-    <div class="board"></div>
-    <div class="message"></div>
-    <button id="restartButton" class="restart-btn">もう一度プレイ</button>
+
+    <div id="gameBoard" class="game-screen" style="display: none;">
+        <div class="board"></div>
+        <div class="message"></div>
+        <button id="restartButton" class="restart-btn">もう一度プレイ</button>
+    </div>
+
     <!-- スクリプトの順序と参照を修正 -->
     <script src="js/Utils.js"></script>
     <script src="js/GameManager.js"></script>

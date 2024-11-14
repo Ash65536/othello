@@ -167,6 +167,18 @@ body {
     transform: scale(1.1);
 }
 
+/* AI mode specific styles */
+.difficulty-btn[data-level="dqn"] {
+    background-color: #8e44ad;
+    border: 2px solid #6c3483;
+}
+
+.difficulty-btn[data-level="dqn"].active {
+    background-color: #9b59b6;
+    transform: scale(1.1);
+    box-shadow: 0 0 15px rgba(142, 68, 173, 0.5);
+}
+
 /* モバイル向け調整 */
 @media screen and (max-width: 480px) {
     .difficulty-selector {
@@ -284,4 +296,79 @@ body {
         font-size: 1em;
         margin-top: 15px;
     }
+}
+
+.setup-screen {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background-color: #1abc9c;
+}
+
+.setup-container {
+    background-color: white;
+    padding: 2rem;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    max-width: 600px;
+    width: 90%;
+}
+
+.setup-section {
+    margin: 1.5rem 0;
+}
+
+.setup-section h3 {
+    color: #34495e;
+    margin-bottom: 1rem;
+}
+
+.turn-selector {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.turn-btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background-color: #34495e;
+    color: white;
+}
+
+.turn-btn.active {
+    background-color: #2ecc71;
+    transform: scale(1.1);
+}
+
+.start-btn {
+    display: block;
+    width: 200px;
+    margin: 2rem auto 0;
+    padding: 15px 30px;
+    border: none;
+    border-radius: 5px;
+    background-color: #2ecc71;
+    color: white;
+    font-size: 1.2em;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.start-btn:hover {
+    transform: scale(1.05);
+    background-color: #27ae60;
+}
+
+.game-screen {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
 }
