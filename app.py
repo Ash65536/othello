@@ -8,6 +8,12 @@ import numpy as np
 from flask_cors import CORS
 from model import OthelloModel
 import time
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from collections import deque
+import os  # osモジュールを追加
+import json  # jsonモジュールを追加
 
 app = Flask(__name__)
 CORS(app, resources={
@@ -37,38 +43,260 @@ class TranspositionTable:
 
 trans_table = TranspositionTable()
 
+# DQNモデルの定義
+class OthelloDQN(nn.Module):
+    def __init__(self):
+        super(OthelloDQN, self).__init__()
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(128, 128, kernel_size=3, padding=1)
+        self.fc1 = nn.Linear(128 * 8 * 8, 512)
+        self.fc2 = nn.Linear(512, 64)
+        
+    def forward(self, x):
+        x = torch.relu(self.conv1(x))
+        x = torch.relu(self.conv2(x))
+        x = torch.relu(self.conv3(x))
+        x = x.view(-1, 128 * 8 * 8)
+        x = torch.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+class DQNAgent:
+    def __init__(self):
+        self.model = OthelloDQN()
+        self.target_model = OthelloDQN()
+        self.target_model.load_state_dict(self.model.state_dict())
+        self.optimizer = optim.Adam(self.model.parameters())
+        self.memory = deque(maxlen=10000)
+        self.batch_size = 32
+        self.gamma = 0.95
+        self.epsilon = 0.1
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.to(self.device)
+        self.target_model.to(self.device)
+
+    def get_state(self, board):
+        # ボードを3チャンネルの状態に変換（自分の石、相手の石、空きマス）
+        state = np.zeros((3, 8, 8), dtype=np.float32)
+        for i in range(8):
+            for j in range(8):
+                if board[i][j] == 'white':
+                    state[0][i][j] = 1
+                elif board[i][j] == 'black':
+                    state[1][i][j] = 1
+                else:
+                    state[2][i][j] = 1
+        return torch.FloatTensor(state).unsqueeze(0).to(self.device)
+
+    def get_action(self, state, valid_moves):
+        if valid_moves and random.random() > self.epsilon:
+            with torch.no_grad():
+                q_values = self.model(state)
+                # 有効な手のみから選択
+                valid_q_values = {tuple(move): q_values[0][move[0] * 8 + move[1]].item() 
+                                for move in valid_moves}
+                return max(valid_q_values.items(), key=lambda x: x[1])[0]
+        return tuple(random.choice(valid_moves)) if valid_moves else None
+
+    def train(self, batch):
+        if len(batch) < self.batch_size:
+            return
+
+        batch = random.sample(batch, self.batch_size)
+        states = torch.cat([x[0] for x in batch])
+        actions = torch.tensor([[x[1][0] * 8 + x[1][1]] for x in batch]).long()
+        rewards = torch.tensor([x[2] for x in batch]).float()
+        next_states = torch.cat([x[3] for x in batch])
+        dones = torch.tensor([x[4] for x in batch]).float()
+
+        current_q_values = self.model(states).gather(1, actions)
+        next_q_values = self.target_model(next_states).max(1)[0].detach()
+        target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
+        
+        loss = nn.MSELoss()(current_q_values.squeeze(), target_q_values)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+    def update_target_model(self):
+        self.target_model.load_state_dict(self.model.state_dict())
+
+# DQNエージェントのインスタンス化
+dqn_agent = DQNAgent()
+
+# 棋譜管理用のクラスを追加
+class GameRecord:
+    def __init__(self):
+        self.timestamp = time.strftime('%Y%m%d_%H%M%S')
+        self.moves = []
+        self.result = None
+        
+    def add_move(self, board, move, color):
+        self.moves.append({
+            'board': copy.deepcopy(board),
+            'move': move,
+            'color': color
+        })
+    
+    def set_result(self, winner):
+        self.result = winner
+    
+    def save(self):
+        record_dir = os.path.join('model', 'game_records')
+        os.makedirs(record_dir, exist_ok=True)
+        
+        filename = f'game_{self.timestamp}.json'
+        filepath = os.path.join(record_dir, filename)
+        
+        data = {
+            'timestamp': self.timestamp,
+            'moves': self.moves,
+            'result': self.result
+        }
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+
+class LearningLogger:
+    def __init__(self):
+        self.log_dir = os.path.join('model', 'learning_logs')
+        os.makedirs(self.log_dir, exist_ok=True)
+        self.current_log = os.path.join(
+            self.log_dir, 
+            f'learning_log_{time.strftime("%Y%m%d")}.txt'
+        )
+    
+    def log(self, message):
+        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+        with open(self.current_log, 'a', encoding='utf-8') as f:
+            f.write(f'[{timestamp}] {message}\n')
+
+# グローバルインスタンスの作成
+learning_logger = LearningLogger()
+current_game = None
+
+@app.route('/game_start', methods=['POST'])
+def game_start():
+    global current_game
+    current_game = GameRecord()
+    return jsonify({"status": "success"})
+
 @app.route('/ai_move', methods=['POST'])
 def ai_move():
     data = request.json
     board = data.get('board')
     color = data.get('color', 'white')
-    game_phase = get_game_phase(board)
+    difficulty = data.get('difficulty', 'normal')
     
-    # ML予測を試みる
-    possible_moves = find_possible_moves(board, color)
-    ml_move = model.predict_move(board, possible_moves)
+    # 現在の盤面を棋譜に記録
+    if current_game:
+        last_move = data.get('last_move')
+        if last_move:
+            current_game.add_move(board, last_move, 'black')
     
-    if ml_move and random.random() < 0.7:  # 70%の確率でML予測を使用
-        move = ml_move
-    else:
-        # 通常の探索を実行
-        if game_phase == 'opening':
-            move = handle_opening(board, color)
-        elif game_phase == 'endgame':
-            move = handle_endgame(board, color)
-        else:
-            move = handle_middlegame(board, color)
+    if difficulty == 'dqn':
+        # DQNによる手の選択
+        state = dqn_agent.get_state(board)
+        valid_moves = find_possible_moves(board, color)
+        move = dqn_agent.get_action(state, valid_moves)
+        
+        if move:
+            # 経験を保存
+            new_board = copy.deepcopy(board)
+            apply_move(new_board, move[0], move[1], color)
+            next_state = dqn_agent.get_state(new_board)
+            reward = evaluate_board(new_board, color)
+            done = not has_valid_move(new_board, 'black') and not has_valid_move(new_board, 'white')
+            
+            dqn_agent.memory.append((state, move, reward, next_state, done))
+            
+            # 学習
+            if len(dqn_agent.memory) >= dqn_agent.batch_size:
+                dqn_agent.train(dqn_agent.memory)
+            
+            # AIの手を棋譜に記録
+            if current_game:
+                current_game.add_move(new_board, move, 'white')
+            
+            return jsonify({
+                "move": {"row": move[0], "col": move[1]},
+                "evaluation": reward
+            })
     
-    if move:
-        game_history.append(({
-            'board': board,
-            'current_player': color
-        }, move))
+    # 既存のAIロジック
+    # Placeholder for existing AI logic
+    return jsonify({"move": {"row": 0, "col": 0}, "evaluation": 0})
+
+@app.route('/game_end', methods=['POST'])
+def game_end():
+    data = request.json
+    winner = data.get('winner')
     
-    return jsonify({
-        "move": {"row": move[0], "col": move[1]} if move else None,
-        "evaluation": evaluate_board(board, color)
-    })
+    if current_game:
+        current_game.set_result(winner)
+        current_game.save()
+        
+        # 学習を実行
+        try:
+            train_from_game_record(current_game)
+            learning_logger.log(f"Trained on game record, winner: {winner}")
+        except Exception as e:
+            learning_logger.log(f"Error training on game record: {str(e)}")
+    
+    return jsonify({"status": "success"})
+
+def train_from_game_record(game_record):
+    """棋譜データから学習を行う"""
+    training_data = []
+    
+    for move_data in game_record.moves:
+        board = move_data['board']
+        move = move_data['move']
+        color = move_data['color']
+        
+        # 状態の取得
+        state = dqn_agent.get_state(board)
+        
+        # 報酬の計算
+        reward = 1.0 if color == game_record.result else -1.0
+        
+        # 次の状態の取得
+        next_board = copy.deepcopy(board)
+        if isinstance(move, dict):  # moveがdict型の場合の対応
+            move = (move['row'], move['col'])
+        apply_move(next_board, move[0], move[1], color)
+        next_state = dqn_agent.get_state(next_board)
+        
+        # 最後の手かどうか
+        done = (move_data == game_record.moves[-1])
+        
+        # 経験を記憶
+        dqn_agent.memory.append((state, move, reward, next_state, done))
+    
+    # バッチ学習の実行
+    if len(dqn_agent.memory) >= dqn_agent.batch_size:
+        dqn_agent.train(dqn_agent.memory)
+        learning_logger.log(f"Batch training completed, memory size: {len(dqn_agent.memory)}")
+
+# 定期的なモデルの保存と更新
+def periodic_model_update():
+    while True:
+        time.sleep(3600)  # 1時間ごと
+        dqn_agent.update_target_model()
+        torch.save(dqn_agent.model.state_dict(), 'othello_dqn_model.pth')
+
+# モデルの読み込み
+try:
+    dqn_agent.model.load_state_dict(torch.load('othello_dqn_model.pth'))
+    dqn_agent.target_model.load_state_dict(dqn_agent.model.state_dict())
+except:
+    print("No existing model found. Starting with a new model.")
+
+# バックグラウンドでモデル更新を実行
+from threading import Thread
+update_thread = Thread(target=periodic_model_update, daemon=True)
+update_thread.start()
 
 @app.route('/game_end', methods=['POST'])
 def game_end():
@@ -370,11 +598,10 @@ def negaScout(board, depth, alpha, beta, color):
     return max_score
 
 def alpha_beta_with_timeout(board, depth, alpha, beta, maximizing_player, player):
-    # 探索開始時刻を記録
     start_time = time.time()
     
     def should_timeout():
-        return time.time() - start_time > (AI_TIMEOUT * 0.8)  # 80%のタイムアウト閾値
+        return time.time() - start_time > (AI_TIMEOUT * 0.8)
     
     def alpha_beta_inner(board, depth, alpha, beta, maximizing_player, player):
         if should_timeout():
@@ -383,13 +610,32 @@ def alpha_beta_with_timeout(board, depth, alpha, beta, maximizing_player, player
         if depth == 0 or not has_valid_move(board, 'black') and not has_valid_move(board, 'white'):
             return evaluate_board(board, player)
 
-        # キャッシュチェック
         board_hash = str(board)
         cache_entry = trans_table.get(board_hash)
         if cache_entry and cache_entry.get('depth', 0) >= depth:
             return cache_entry['score']
 
-        # ...existing alpha_beta code...
+        opponent = 'black' if player == 'white' else 'white'
+        best_score = float('-inf') if maximizing_player else float('inf')
+        
+        if maximizing_player:
+            for move in find_possible_moves(board, player):
+                new_board = copy.deepcopy(board)
+                apply_move(new_board, move[0], move[1], player)
+                score = alpha_beta_inner(new_board, depth - 1, alpha, beta, False, player)
+                best_score = max(best_score, score)
+                alpha = max(alpha, score)
+                if beta <= alpha:
+                    break
+        else:
+            for move in find_possible_moves(board, opponent):
+                new_board = copy.deepcopy(board)
+                apply_move(new_board, move[0], move[1], opponent)
+                score = alpha_beta_inner(new_board, depth - 1, alpha, beta, True, player)
+                best_score = min(best_score, score)
+                beta = min(beta, score)
+                if beta <= alpha:
+                    break
         
         trans_table.set(board_hash, {'depth': depth, 'score': best_score})
         return best_score
@@ -397,7 +643,7 @@ def alpha_beta_with_timeout(board, depth, alpha, beta, maximizing_player, player
     try:
         return alpha_beta_inner(board, depth, alpha, beta, maximizing_player, player)
     except TimeoutError:
-        return evaluate_board(board, player)  # タイムアウト時は現在の評価値を返す
+        return evaluate_board(board, player)
 
 def evaluate_board(board, player):
     # 評価関数の強化
@@ -486,7 +732,7 @@ def is_valid_move(board, row, col, player):
     ]
     opponent = 'black' if player == 'white' else 'white'
     for dx, dy in directions:
-        x, y = row + dx, col + dy
+        x, y = row + dx
         has_opponent = False
         while 0 <= x < 8 and 0 <= y < 8 and board[x][y] == opponent:
             x += dx
@@ -525,7 +771,131 @@ def has_valid_move(board, player):
                 return True
     return False
 
+# 自己対戦用の新しいクラスと変数を追加
+class SelfPlayManager:
+    def __init__(self):
+        self.game_buffer = deque(maxlen=1000)  # 直近1000ゲームを保持
+        self.total_games = 0
+        self.win_rates = {'black': 0, 'white': 0, 'draw': 0}
+
+    def record_game(self, moves, winner):
+        self.game_buffer.append({'moves': moves, 'winner': winner})
+        self.total_games += 1
+        self.win_rates[winner] = self.win_rates.get(winner, 0) + 1
+        self._update_win_rates()
+
+    def _update_win_rates(self):
+        for key in self.win_rates:
+            self.win_rates[key] = (self.win_rates[key] / self.total_games) * 100
+
+    def get_random_game(self):
+        if not self.game_buffer:
+            return None
+        return random.choice(self.game_buffer)
+
+# グローバルなインスタンスを作成
+self_play_manager = SelfPlayManager()
+
+# 自己対戦による学習を行うエンドポイント
+@app.route('/self_play_training', methods=['POST'])
+def self_play_training():
+    num_games = request.json.get('num_games', 10)
+    results = []
+
+    for _ in range(num_games):
+        game_record = play_self_game()
+        results.append(game_record)
+        
+        # モデルの学習
+        if len(self_play_manager.game_buffer) >= 32:  # バッチサイズ分のデータが溜まったら学習
+            train_from_self_play()
+
+    return jsonify({
+        "status": "success",
+        "games_played": num_games,
+        "win_rates": self_play_manager.win_rates
+    })
+
+def play_self_game():
+    board = [[None for _ in range(8)] for _ in range(8)]
+    board[3][3] = board[4][4] = 'white'
+    board[3][4] = board[4][3] = 'black'
+    current_color = 'black'
+    moves_history = []
+    
+    while True:
+        if not has_valid_move(board, 'black') and not has_valid_move(board, 'white'):
+            break
+
+        if has_valid_move(board, current_color):
+            state = dqn_agent.get_state(board)
+            valid_moves = find_possible_moves(board, current_color)
+            move = dqn_agent.get_action(state, valid_moves)
+            
+            if move:
+                moves_history.append({
+                    'color': current_color,
+                    'move': move,
+                    'board': copy.deepcopy(board)
+                })
+                apply_move(board, move[0], move[1], current_color)
+
+        current_color = 'white' if current_color == 'black' else 'black'
+
+    # 勝者の判定
+    black_count = sum(row.count('black') for row in board)
+    white_count = sum(row.count('white') for row in board)
+    winner = 'black' if black_count > white_count else 'white' if white_count > black_count else 'draw'
+    
+    # ゲーム記録を保存
+    self_play_manager.record_game(moves_history, winner)
+    
+    return {
+        'moves': moves_history,
+        'winner': winner,
+        'final_score': {'black': black_count, 'white': white_count}
+    }
+
+def train_from_self_play():
+    game_data = self_play_manager.get_random_game()
+    if not game_data:
+        return
+
+    for move_data in game_data['moves']:
+        state = dqn_agent.get_state(move_data['board'])
+        move = move_data['move']
+        reward = 1 if move_data['color'] == game_data['winner'] else -1
+        
+        # 次の状態を取得
+        next_board = copy.deepcopy(move_data['board'])
+        apply_move(next_board, move[0], move[1], move_data['color'])
+        next_state = dqn_agent.get_state(next_board)
+        
+        # 経験を記憶
+        done = (game_data['moves'][-1] == move_data)
+        dqn_agent.memory.append((state, move, reward, next_state, done))
+
+    # バッチ学習の実行
+    if len(dqn_agent.memory) >= dqn_agent.batch_size:
+        dqn_agent.train(dqn_agent.memory)
+
+# 定期的な自己対戦トレーニングを行うバックグラウンド処理
+def periodic_self_play_training():
+    while True:
+        play_self_game()
+        time.sleep(10)  # 10秒ごとに1ゲーム実行
+
+# 既存のスレッド起動部分を修正
 if __name__ == '__main__':
-    mp.freeze_support()  # ここを追加
+    mp.freeze_support()
     trans_table = TranspositionTable()
+    
+    # モデル更新用スレッド
+    update_thread = Thread(target=periodic_model_update, daemon=True)
+    update_thread.start()
+    
+    # 自己対戦用スレッド
+    self_play_thread = Thread(target=periodic_self_play_training, daemon=True)
+    self_play_thread.start()
+    
     app.run(debug=True)
