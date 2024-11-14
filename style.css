@@ -89,6 +89,8 @@ body {
     margin-top: 20px;
     font-size: 1.5em;
     color: #34495e;
+    min-height: 1.5em; /* メッセージの高さを固定 */
+    text-align: center;
 }
 
 .thinking {
@@ -96,10 +98,22 @@ body {
     color: #2c3e50;
 }
 
+.thinking .dots {
+    display: inline-block;
+    animation: dots 1.5s infinite;
+}
+
 @keyframes thinking {
     0% { opacity: 1; }
     50% { opacity: 0.3; }
     100% { opacity: 1; }
+}
+
+@keyframes dots {
+    0% { content: '.'; }
+    33% { content: '..'; }
+    66% { content: '...'; }
+    100% { content: '.'; }
 }
 
 /* スマートフォン向けのメディアクエリを追加 */
@@ -127,6 +141,69 @@ body {
         margin: 10px 0;
         padding: 0 10px;
         text-align: center;
+    }
+}
+
+/* モバイル向け最適化 */
+@media screen and (max-width: 480px) {
+    body {
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
+    }
+
+    .board {
+        margin: 10px auto;
+        transform: scale(0.95);
+        transform-origin: center center;
+        will-change: transform;
+    }
+
+    .cell {
+        touch-action: manipulation;
+    }
+
+    .stone {
+        will-change: transform, background-color;
+    }
+
+    .message {
+        padding: 10px;
+        margin: 5px 0;
+        font-size: 1.2em;
+        position: fixed;
+        bottom: env(safe-area-inset-bottom, 10px);
+        left: 0;
+        right: 0;
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(5px);
+        z-index: 100;
+    }
+}
+
+/* 縦向き特有の調整 */
+@media screen and (max-width: 480px) and (orientation: portrait) {
+    .board {
+        transform: scale(0.9);
+    }
+}
+
+/* 横向き特有の調整 */
+@media screen and (max-width: 480px) and (orientation: landscape) {
+    body {
+        padding: 5px;
+    }
+
+    .board {
+        transform: scale(0.8);
+    }
+}
+
+/* 小さいスマートフォン向け */
+@media screen and (max-width: 320px) {
+    .board {
+        transform: scale(0.85);
     }
 }
 

@@ -7,6 +7,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let aiWorker = null;
     let lastMove = null;  // Add this line to track the last move
 
+    // タッチデバイス検出
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    let touchStartTime = 0;
+    let touchStartPosition = null;
+
     // 初期配置
     board[3][3] = 'white';
     board[3][4] = 'black';
@@ -14,7 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     board[4][4] = 'white';
 
     function renderBoard() {
-        boardElement.innerHTML = '';
+        const fragment = document.createDocumentFragment();
         for (let i = 0; i < 8; i++) {
             for (let j = 0; j < 8; j++) {
                 const cell = document.createElement('div');
@@ -29,9 +34,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     cell.appendChild(hint);
                 }
                 cell.addEventListener('click', () => handleCellClick(i, j));
-                boardElement.appendChild(cell);
+                fragment.appendChild(cell);
             }
         }
+        boardElement.innerHTML = '';
+        boardElement.appendChild(fragment);
 
         // 現在のプレイヤーが置ける場所がない場合、パス処理を実行
         if (!hasValidMove(board, currentPlayer)) {
@@ -42,6 +49,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleCellClick(row, col) {
+        // タッチデバイスでのダブルタップ防止
+        if (isTouchDevice) {
+            const now = Date.now();
+            if (now - touchStartTime < 300) {
+                return;
+            }
+            touchStartTime = now;
+        }
+
         // 処理中は操作を受け付けない
         if (isProcessing || currentPlayer === 'white') return;
 
@@ -86,6 +102,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         }
+    }
+
+    // タッチイベントの最適化
+    if (isTouchDevice) {
+        boardElement.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            touchStartPosition = {
+                x: e.touches[0].clientX,
+                y: e.touches[0].clientY
+            };
+        }, { passive: false });
+
+        boardElement.addEventListener('touchend', (e) => {
+            if (!touchStartPosition) return;
+            
+            const touch = e.changedTouches[0];
+            const dx = touch.clientX - touchStartPosition.x;
+            const dy = touch.clientY - touchStartPosition.y;
+            
+            // スワイプ検出（15px以上の移動でキャンセル）
+            if (Math.abs(dx) > 15 || Math.abs(dy) > 15) {
+                return;
+            }
+            
+            touchStartPosition = null;
+        });
     }
 
     // パス処理を行う関数を修正
@@ -252,7 +294,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showLoading() {
-        messageElement.textContent = "AIが思考中...";  // メッセージを簡潔に
+        messageElement.innerHTML = "AIが思考中<span class='dots'>...</span>";
         messageElement.classList.add('thinking');
     }
 
@@ -270,23 +312,17 @@ document.addEventListener('DOMContentLoaded', () => {
         isProcessing = true;
         showLoading();
         
-        // 残り手数を確認
-        const remainingMoves = board.flat().filter(cell => cell === null).length;
-        if (remainingMoves === 0) {
-            // 手がない場合は即座に終了処理
-            endGame();
-            isProcessing = false;
-            hideLoading();
-            return;
-        }
+        // 最小待機時間を設定（1秒）
+        const minWaitTime = 1000;
+        const startTime = Date.now();
         
-        // ゲームの状態を含めてAIに送信
+        // AIに送信する前に最小待機時間を確保
         const gameState = {
             board: board,
             color: 'white',
             counts: countStones(board),
             lastMove: lastMove || null,
-            remainingMoves: remainingMoves  // 残り手数を追加
+            remainingMoves: board.flat().filter(cell => cell === null).length
         };
         
         const timeoutId = setTimeout(() => {
@@ -296,19 +332,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 hideLoading();
                 handleFallbackAI();
             }
-        }, 3000); // タイムアウトも3秒に短縮
+        }, 3000);
 
         aiWorker.onmessage = function(e) {
             clearTimeout(timeoutId);
             const { move, evaluation } = e.data;
+            const elapsedTime = Date.now() - startTime;
             
-            if (move) {
-                updateAIThinkingMessage(evaluation);
-                handleAIMove(move[0], move[1]);
+            // 最小待機時間を確保するため、必要に応じて遅延を追加
+            const remainingWait = minWaitTime - elapsedTime;
+            if (remainingWait > 0) {
+                setTimeout(() => {
+                    if (move) {
+                        updateAIThinkingMessage(evaluation);
+                        handleAIMove(move[0], move[1]);
+                    } else {
+                        handlePass();
+                    }
+                    hideLoading();
+                }, remainingWait);
             } else {
-                handlePass();
+                if (move) {
+                    updateAIThinkingMessage(evaluation);
+                    handleAIMove(move[0], move[1]);
+                } else {
+                    handlePass();
+                }
+                hideLoading();
             }
-            hideLoading();
         };
 
         aiWorker.postMessage(gameState);
