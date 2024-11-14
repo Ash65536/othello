@@ -82,10 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // デフォルトの難易度をアクティブに
     document.querySelector(`[data-level="normal"]`).classList.add('active');
 
-    // タッチデバイス検出
-    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    let touchStartTime = 0;
-    let touchStartPosition = null;
+    
 
     // 初期配置
     board[3][3] = 'white';
@@ -125,13 +122,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handleCellClick(row, col) {
         if (!setupComplete) return;
-        if (isTouchDevice) {
-            const now = Date.now();
-            if (now - touchStartTime < 300) {
-                return;
-            }
-            touchStartTime = now;
-        }
 
         // プレイヤーの手番でない場合や処理中は操作を受け付けない
         if (isProcessing || currentPlayer !== playerColor) return;
@@ -178,32 +168,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // タッチイベントの最適化
-    if (isTouchDevice) {
-        boardElement.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            touchStartPosition = {
-                x: e.touches[0].clientX,
-                y: e.touches[0].clientY
-            };
-        }, { passive: false });
-
-        boardElement.addEventListener('touchend', (e) => {
-            if (!touchStartPosition) return;
-            
-            const touch = e.changedTouches[0];
-            const dx = touch.clientX - touchStartPosition.x;
-            const dy = touch.clientY - touchStartPosition.y;
-            
-            // スワイプ検出（15px以上の移動でキャンセル）
-            if (Math.abs(dx) > 15 || Math.abs(dy) > 15) {
-                return;
-            }
-            
-            touchStartPosition = null;
-        });
-    }
-
     // パス処理を行う関数を修正
     function handlePass() {
         const passingPlayer = currentPlayer;
@@ -233,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 1000);
     }
 
-    // AIの���を別関数として実装
+    // AIの手を別関数として実装
     function handleAIMove(row, col) {
         const flippedStones = applyMove(board, row, col, currentPlayer);
         lastMove = [row, col];
@@ -396,46 +360,16 @@ document.addEventListener('DOMContentLoaded', () => {
             difficulty: currentDifficulty  // 難易度を追加
         };
 
-        // 最小待機時間を設定（1秒）
-        const minWaitTime = 1000;
-        const startTime = Date.now();
-        
-        // AIに送信する前に最小待機時間を確保
-        const timeoutId = setTimeout(() => {
-            if (aiWorker) {
-                aiWorker.terminate();
-                aiWorker = null;
-                hideLoading();
-                handleFallbackAI();
-            }
-        }, 3000);
-
         aiWorker.onmessage = function(e) {
-            clearTimeout(timeoutId);
             const { move, evaluation } = e.data;
-            const elapsedTime = Date.now() - startTime;
             
-            // 最小待機時間を確保するため、必要に応じて遅延を追加
-            const remainingWait = minWaitTime - elapsedTime;
-            if (remainingWait > 0) {
-                setTimeout(() => {
-                    if (move) {
-                        updateAIThinkingMessage(evaluation);
-                        handleAIMove(move[0], move[1]);
-                    } else {
-                        handlePass();
-                    }
-                    hideLoading();
-                }, remainingWait);
+            if (move) {
+                updateAIThinkingMessage(evaluation);
+                handleAIMove(move[0], move[1]);
             } else {
-                if (move) {
-                    updateAIThinkingMessage(evaluation);
-                    handleAIMove(move[0], move[1]);
-                } else {
-                    handlePass();
-                }
-                hideLoading();
+                handlePass();
             }
+            hideLoading();
         };
 
         aiWorker.postMessage(gameState);

@@ -18,9 +18,11 @@ import json  # jsonモジュールを追加
 app = Flask(__name__)
 CORS(app, resources={
     r"/*": {
-        "origins": "*",
-        "methods": ["OPTIONS", "POST"],
-        "allow_headers": ["Content-Type"]
+        "origins": ["http://localhost:5500", "http://127.0.0.1:5500"],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Access-Control-Allow-Origin"],
+        "supports_credentials": True,
+        "max_age": 3600
     }
 })  # Add this line after creating the Flask app
 
@@ -343,6 +345,21 @@ def train_from_game_record(game_record):
     if len(dqn_agent.memory) >= dqn_agent.batch_size:
         dqn_agent.train()
         learning_logger.log(f"Batch training completed, memory size: {len(dqn_agent.memory)}")
+
+    # 遺伝的進化の適用
+    current_model = genetic_learning.population[0]
+    current_model['games_played'] += 1
+    
+    # 勝利時のフィットネス更新
+    if current_model['games_played'] >= 10:
+        win_rate = game_record.result == playerColor
+        current_model['fitness'] = (current_model['fitness'] * 0.9 + 
+                                  (1.0 if win_rate else 0.0) * 0.1)
+        
+        # 一定数のゲーム後に進化を実行
+        if sum(p['games_played'] for p in genetic_learning.population) >= 100:
+            genetic_learning.evolve()
+            learning_logger.log(f"Genetic evolution completed. Generation: {genetic_learning.generation}")
 
 # 定期的なモデルの保存と更新
 def periodic_model_update():
@@ -950,6 +967,91 @@ def periodic_self_play_training():
         play_self_game()
         time.sleep(10)  # 10秒ごとに1ゲーム実行
 
+class GeneticLearning:
+    def __init__(self, population_size=10):
+        self.population_size = population_size
+        self.population = []
+        self.generation = 0
+        self.elite_size = 2
+        
+        # 初期集団の生成
+        for _ in range(population_size):
+            model = OthelloDQN().to(dqn_agent.device)
+            self.population.append({
+                'model': model,
+                'fitness': 0,
+                'games_played': 0
+            })
+
+    def crossover(self, parent1, parent2):
+        """モデルのクロスオーバー"""
+        child = OthelloDQN().to(dqn_agent.device)
+        
+        # 重みのクロスオーバー
+        for (name1, param1), (name2, param2) in zip(
+            parent1.named_parameters(), 
+            parent2.named_parameters()
+        ):
+            # ランダムな交差点を選択
+            cross_point = torch.rand(param1.shape) < 0.5
+            new_param = torch.where(cross_point, param1, param2)
+            dict(child.named_parameters())[name1].data.copy_(new_param)
+            
+        return child
+
+    def mutate(self, model, mutation_rate=0.1):
+        """モデルの突然変異"""
+        for param in model.parameters():
+            if torch.rand(1) < mutation_rate:
+                noise = torch.randn(param.shape) * 0.1
+                param.data += noise.to(param.device)
+
+    def evolve(self):
+        """世代を進化させる"""
+        # 適応度でソート
+        self.population.sort(key=lambda x: x['fitness'], reverse=True)
+        
+        # エリート選択
+        new_population = self.population[:self.elite_size]
+        
+        # 残りの個体を生成
+        while len(new_population) < self.population_size:
+            # トーナメント選択
+            parent1 = self.tournament_select()
+            parent2 = self.tournament_select()
+            
+            # クロスオーバー
+            child_model = self.crossover(parent1['model'], parent2['model'])
+            
+            # 突然変異
+            self.mutate(child_model)
+            
+            new_population.append({
+                'model': child_model,
+                'fitness': 0,
+                'games_played': 0
+            })
+        
+        self.population = new_population
+        self.generation += 1
+
+    def tournament_select(self, tournament_size=3):
+        """トーナメント選択"""
+        tournament = random.sample(self.population, tournament_size)
+        return max(tournament, key=lambda x: x['fitness'])
+
+# グローバルなインスタンスを作成
+genetic_learning = GeneticLearning()
+
+# 定期的な遺伝的進化の実行を追加
+def periodic_genetic_evolution():
+    while True:
+        time.sleep(3600)  # 1時間ごと
+        genetic_learning.evolve()
+        dqn_agent.policy_net = genetic_learning.population[0]['model']
+        dqn_agent.save_model('model/othello_dqn_model.pth')
+        learning_logger.log(f"Periodic genetic evolution completed. Generation: {genetic_learning.generation}")
+
 # 既存のスレッド起動部分を修正
 if __name__ == '__main__':
     mp.freeze_support()
@@ -962,5 +1064,9 @@ if __name__ == '__main__':
     # 自己対戦用スレッド
     self_play_thread = Thread(target=periodic_self_play_training, daemon=True)
     self_play_thread.start()
+    
+    # 遺伝的進化用スレッド
+    evolution_thread = Thread(target=periodic_genetic_evolution, daemon=True)
+    evolution_thread.start()
     
     app.run(debug=True)

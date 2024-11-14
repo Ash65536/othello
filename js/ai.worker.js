@@ -1,66 +1,84 @@
-let baseUrl = 'http://localhost:5000';
+// baseUrlの設定とエラーハンドリングの改善
+let baseUrl = 'http://127.0.0.1:5000';  // URLを固定
 
-self.onmessage = async function(e) {
-    const { board, color, remainingMoves, difficulty } = e.data;
+// エラーハンドリング用のヘルパー関数
+async function fetchWithTimeout(url, options, timeout = 5000) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
     
     try {
+        const response = await fetch(url, {
+            ...options,
+            method: 'POST',  // POSTメソッドを確認
+            signal: controller.signal
+        });
+        clearTimeout(id);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response;
+    } catch (error) {
+        clearTimeout(id);
+        if (error.name === 'AbortError') {
+            throw new Error('Request timed out');
+        }
+        throw error;
+    }
+}
+
+self.onmessage = async function(e) {
+    try {
+        const { board, color, difficulty } = e.data;
         let move = null;
         let evaluation = 0;
 
-        switch (difficulty) {
-            case 'easy':
-                // かんたん: 完全ランダム
-                move = getRandomMove(board, color);
-                break;
-            
-            case 'normal':
-                // ふつう: 基本的な評価関数と浅い探索
-                move = await getNormalMove(board, color);
-                break;
-            
-            case 'hard':
-                // つよい: より深い探索と改善された評価関数
-                move = await getHardMove(board, color);
-                break;
-            
-            case 'expert':
-                // ゲキムズ: 完全な探索と高度な評価関数
-                move = await getExpertMove(board, color);
-                break;
-            
-            case 'god':
-                // 神: すべての最適化を適用
-                move = await getGodMove(board, color);
-                break;
-
-            case 'dqn':
-                // DQNモード
-                const response = await fetch(`${baseUrl}/ai_move`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Access-Control-Allow-Origin': '*',
-                        'Access-Control-Allow-Methods': 'POST',
-                        'Access-Control-Allow-Headers': 'Content-Type'
-                    },
-                    mode: 'cors',
-                    body: JSON.stringify({ 
-                        board: board,
-                        color: color,
-                        difficulty: 'dqn'
-                    })
-                });
-
-                if (!response.ok) {
-                    throw new Error('DQN response was not ok');
-                }
+        if (difficulty === 'dqn') {
+            try {
+                const response = await fetchWithTimeout(
+                    `${baseUrl}/ai_move`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ 
+                            board: board,
+                            color: color,
+                            difficulty: 'dqn'
+                        })
+                    }
+                );
 
                 const data = await response.json();
                 if (data.move) {
                     move = [data.move.row, data.move.col];
                     evaluation = data.evaluation;
                 }
-                break;
+            } catch (error) {
+                console.error('DQN API error:', error);
+                // APIエラー時はフォールバック
+                move = getRandomMove(board, color);
+            }
+        } else {
+            // 既存のAIロジック
+            switch (difficulty) {
+                case 'easy':
+                    move = getRandomMove(board, color);
+                    break;
+                case 'normal':
+                    move = await getNormalMove(board, color);
+                    break;
+                case 'hard':
+                    move = await getHardMove(board, color);
+                    break;
+                case 'expert':
+                    move = await getExpertMove(board, color);
+                    break;
+                case 'god':
+                    move = await getGodMove(board, color);
+                    break;
+            }
         }
 
         self.postMessage({ move, evaluation });
@@ -71,6 +89,33 @@ self.onmessage = async function(e) {
         self.postMessage({ move, evaluation: 0 });
     }
 };
+
+// getFlippableCells関数の追加
+function getFlippableCells(board, row, col, player) {
+    const directions = [
+        [-1, 0], [1, 0], [0, -1], [0, 1],
+        [-1, -1], [-1, 1], [1, -1], [1, 1]
+    ];
+    const opponent = player === 'black' ? 'white' : 'black';
+    const flippableCells = [];
+
+    for (const [dx, dy] of directions) {
+        let x = row + dx, y = col + dy;
+        let cellsToFlip = [];
+
+        while (x >= 0 && x < 8 && y >= 0 && y < 8 && board[x][y] === opponent) {
+            cellsToFlip.push([x, y]);
+            x += dx;
+            y += dy;
+        }
+
+        if (x >= 0 && x < 8 && y >= 0 && y < 8 && board[x][y] === player) {
+            flippableCells.push(...cellsToFlip);
+        }
+    }
+
+    return flippableCells;
+}
 
 function getRandomMove(board, color) {
     const moves = findPossibleMoves(board, color);
@@ -537,7 +582,7 @@ function getExpertMove(board, color) {
 }
 
 function getGodMove(board, color) {
-    // モンテカルロ木探索 + パターンデータベース + 完全読み
+    // モ��テカルロ木探索 + パターンデータベース + 完全読み
     const remainingMoves = board.flat().filter(cell => cell === null).length;
     if (remainingMoves <= 10) {
         return findPerfectMove(board, color);
@@ -582,7 +627,7 @@ function quickMoveEvaluation(board, [row, col], color) {
     return score;
 }
 
-// 位置の重み付けテーブルを事前定義
+// 位��の重み付けテーブルを事前定義
 const POSITION_WEIGHTS = [
     [100, -20, 20, 5, 5, 20, -20, 100],
     [-20, -40, -5, -5, -5, -5, -40, -20],
@@ -985,4 +1030,88 @@ function negaScout(board, depth, alpha, beta, color) {
 
     transpositionTable.set(hash, { depth, score });
     return score;
+}
+
+// 基本的なゲームロジック関数を追加
+function applyMove(board, row, col, player) {
+    const directions = [
+        [-1, 0], [1, 0], [0, -1], [0, 1],
+        [-1, -1], [-1, 1], [1, -1], [1, 1]
+    ];
+    const opponent = player === 'black' ? 'white' : 'black';
+    board[row][col] = player;
+    const flippedStones = [];
+
+    for (const [dx, dy] of directions) {
+        let x = row + dx, y = col + dy;
+        const cellsToFlip = [];
+
+        while (x >= 0 && x < 8 && y >= 0 && y < 8 && board[x][y] === opponent) {
+            cellsToFlip.push([x, y]);
+            x += dx;
+            y += dy;
+        }
+
+        if (x >= 0 && x < 8 && y >= 0 && y < 8 && board[x][y] === player) {
+            for (const [fx, fy] of cellsToFlip) {
+                board[fx][fy] = player;
+                flippedStones.push([fx, fy]);
+            }
+        }
+    }
+
+    return flippedStones;
+}
+
+function hasValidMove(board, player) {
+    for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+            if (isValidMove(board, i, j, player)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+function countStones(board) {
+    let black = 0, white = 0;
+    for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+            if (board[i][j] === 'black') black++;
+            else if (board[i][j] === 'white') white++;
+        }
+    }
+    return { black, white };
+}
+
+function evaluateStableStones(board, color) {
+    let stableCount = 0;
+    const corners = [[0,0], [0,7], [7,0], [7,7]];
+    
+    for (const [x, y] of corners) {
+        if (board[x][y] === color) {
+            stableCount++;
+            stableCount += evaluateStableDirection(board, x, y, color);
+        }
+    }
+    return stableCount;
+}
+
+function evaluateStableDirection(board, x, y, color) {
+    const directions = [
+        [0,1], [1,0], [1,1], [1,-1],
+        [0,-1], [-1,0], [-1,-1], [-1,1]
+    ];
+    let stableCount = 0;
+
+    for (const [dx, dy] of directions) {
+        let nx = x + dx, ny = y + dy;
+        while (nx >= 0 && nx < 8 && ny >= 0 && ny < 8 && board[nx][ny] === color) {
+            stableCount++;
+            nx += dx;
+            ny += dy;
+        }
+    }
+    return stableCount;
 }
