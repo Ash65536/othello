@@ -101,3 +101,48 @@ body {
     50% { opacity: 0.3; }
     100% { opacity: 1; }
 }
+
+/* スマートフォン向けのメディアクエリを追加 */
+@media screen and (max-width: 480px) {
+    body {
+        padding: 10px;
+        height: auto;
+        min-height: 100vh;
+    }
+
+    .board {
+        grid-template-columns: repeat(8, 40px);
+        grid-template-rows: repeat(8, 40px);
+        gap: 1px;
+        padding: 5px;
+    }
+
+    .cell {
+        width: 40px;
+        height: 40px;
+    }
+
+    .message {
+        font-size: 1.2em;
+        margin: 10px 0;
+        padding: 0 10px;
+        text-align: center;
+    }
+}
+
+/* タブレット向けのメディアクエリを追加 */
+@media screen and (min-width: 481px) and (max-width: 768px) {
+    body {
+        padding: 15px;
+    }
+
+    .board {
+        grid-template-columns: repeat(8, 45px);
+        grid-template-rows: repeat(8, 45px);
+    }
+
+    .cell {
+        width: 45px;
+        height: 45px;
+    }
+}
