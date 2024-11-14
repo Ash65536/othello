@@ -206,14 +206,27 @@ document.addEventListener('DOMContentLoaded', () => {
         let result = `ゲーム終了！ 黒: ${black}, 白: ${white}`;
         let winner = black > white ? 'black' : white > black ? 'white' : 'draw';
         
+        // 処理中フラグをリセット
+        isProcessing = false;
+        
+        // AIワーカーをクリーンアップ
+        if (aiWorker) {
+            aiWorker.terminate();
+            aiWorker = null;
+        }
+        
         // サーバーに結果を送信
-        fetch(`${baseUrl}/game_end`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ winner })
-        });
+        try {
+            fetch(`${baseUrl}/game_end`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ winner })
+            });
+        } catch (error) {
+            console.error('Failed to send game result:', error);
+        }
 
         if (black > white) {
             result += ' - 黒の勝ち！';
@@ -239,7 +252,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showLoading() {
-        messageElement.textContent = "AIが考え中...（最大10秒）";
+        messageElement.textContent = "AIが思考中...";  // メッセージを簡潔に
         messageElement.classList.add('thinking');
     }
 
@@ -257,12 +270,23 @@ document.addEventListener('DOMContentLoaded', () => {
         isProcessing = true;
         showLoading();
         
+        // 残り手数を確認
+        const remainingMoves = board.flat().filter(cell => cell === null).length;
+        if (remainingMoves === 0) {
+            // 手がない場合は即座に終了処理
+            endGame();
+            isProcessing = false;
+            hideLoading();
+            return;
+        }
+        
         // ゲームの状態を含めてAIに送信
         const gameState = {
             board: board,
             color: 'white',
             counts: countStones(board),
-            lastMove: lastMove || null  // Update this line to handle null case
+            lastMove: lastMove || null,
+            remainingMoves: remainingMoves  // 残り手数を追加
         };
         
         const timeoutId = setTimeout(() => {
@@ -272,14 +296,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 hideLoading();
                 handleFallbackAI();
             }
-        }, 10000);
+        }, 3000); // タイムアウトも3秒に短縮
 
         aiWorker.onmessage = function(e) {
             clearTimeout(timeoutId);
             const { move, evaluation } = e.data;
             
             if (move) {
-                // 評価値に基づいてメッセージを表示
                 updateAIThinkingMessage(evaluation);
                 handleAIMove(move[0], move[1]);
             } else {
@@ -303,18 +326,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateAIThinkingMessage(evaluation) {
-        let message = "AIの評価: ";
+        let message = "";  // デフォルトは空文字列
         if (evaluation > 500) {
-            message += "優勢です";
+            message = "優勢";
         } else if (evaluation > 200) {
-            message += "やや優勢です";
+            message = "やや優勢";
         } else if (evaluation < -500) {
-            message += "劣勢です";
+            message = "劣勢";
         } else if (evaluation < -200) {
-            message += "やや劣勢です";
-        } else {
-            message += "互角です";
+            message = "やや劣勢";
+        } else if (Math.abs(evaluation) > 50) {
+            message = "互角";
         }
+        // 評価値が小さい場合はメッセージを表示しない
         messageElement.textContent = message;
     }
 
@@ -334,7 +358,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // 角の隣を避ける
             if ((x === 0 || x === 7) && (y === 1 || y === 6)) return false;
             if ((x === 1 || x === 6) && (y === 0 || y === 7)) return false;
-            // X打ちを避け���
+            // X打ちを避ける
             if ((x === 1 || x === 6) && (y === 1 || y === 6)) return false;
             return true;
         });

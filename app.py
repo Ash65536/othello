@@ -7,6 +7,7 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 from flask_cors import CORS
 from model import OthelloModel
+import time
 
 app = Flask(__name__)
 CORS(app, resources={
@@ -20,7 +21,7 @@ CORS(app, resources={
 model = OthelloModel()
 game_history = []
 
-# トランス��ジションテーブル（プロセス間で共有）
+# トランスジションテーブル（プロセス間で共有）
 class TranspositionTable:
     def __init__(self):
         self.table = mp.Manager().dict()
@@ -116,23 +117,35 @@ def handle_endgame(board, color):
 def handle_middlegame(board, color):
     return parallel_negaScout(board, color, 4)
 
+# タイムアウト時間をさらに短縮
+AI_TIMEOUT = 3  # 5秒から3秒に短縮
+
 def parallel_search(board, color, depth):
-    with ProcessPoolExecutor(max_workers=mp.cpu_count()) as executor:
+    with ProcessPoolExecutor(max_workers=min(mp.cpu_count(), 4)) as executor:  # プロセス数を制限
         moves = find_possible_moves(board, color)
         
-        # 序盤はランダム性を持たせる
+        # 序盤の即応答
         empty_cells = sum(row.count(None) for row in board)
-        if empty_cells > 50:  # 序盤
+        if empty_cells > 50:
             if moves:
                 return choice(moves)
             return None
 
+        # 探索順序を最適化して早期終了を促進
+        sorted_moves = sort_moves_by_priority(board, moves, color)
+        best_move = sorted_moves[0]  # デフォルトの手を設定
+        
+        # 明らかに良い手があれば即座に返す
+        for move in sorted_moves[:3]:  # 上位3手のみチェック
+            if is_critical_move(board, move, color):
+                return move
+
         futures = []
-        for move in moves:
+        for move in sorted_moves[:min(len(sorted_moves), 6)]:  # 上位6手のみ詳細評価
             new_board = copy.deepcopy(board)
             apply_move(new_board, move[0], move[1], color)
             future = executor.submit(
-                alpha_beta,
+                alpha_beta_with_timeout,
                 new_board,
                 depth,
                 float('-inf'),
@@ -142,22 +155,90 @@ def parallel_search(board, color, depth):
             )
             futures.append((move, future))
         
-        if not futures:
-            return None
-
-        best_move = None
         best_score = float('-inf')
-        
         for move, future in futures:
             try:
-                score = future.result(timeout=10)  # 10秒タイムアウト
+                score = future.result(timeout=AI_TIMEOUT * 0.8)
                 if score > best_score:
                     best_score = score
                     best_move = move
+                    if score > 800:  # 十分良い手が見つかれば早期終了
+                        break
             except TimeoutError:
                 continue
 
         return best_move
+
+def is_critical_move(board, move, color):
+    """重要な手かどうかを高速判定"""
+    row, col = move
+    # 角の場合
+    if (row, col) in [(0,0), (0,7), (7,0), (7,7)]:
+        return True
+    
+    # 相手の角取りを防ぐ手の場合
+    opponent = 'black' if color == 'white' else 'white'
+    if any(is_valid_move(board, corner[0], corner[1], opponent) 
+           for corner in [(0,0), (0,7), (7,0), (7,7)]):
+        return True
+    
+    return False
+
+def sort_moves_by_priority(board, moves, color):
+    """手の優先順位付けを最適化"""
+    move_scores = []
+    for move in moves:
+        score = quick_move_evaluation(board, move, color)
+        move_scores.append((move, score))
+    
+    return [move for move, _ in sorted(move_scores, key=lambda x: x[1], reverse=True)]
+
+def quick_move_evaluation(board, move, color):
+    """高速な手の評価"""
+    row, col = move
+    score = 0
+    
+    # 角の評価
+    if (row, col) in [(0,0), (0,7), (7,0), (7,7)]:
+        return 1000
+    
+    # 危険な手の評価
+    if (row in [1,6] and col in [1,6]):
+        return -500
+    
+    # エッジの評価
+    if row in [0,7] or col in [0,7]:
+        score += 50
+    
+    # 石を返せる数の評価
+    new_board = copy.deepcopy(board)
+    flipped = len(get_flippable_stones(board, row, col, color))
+    score += flipped * 10
+    
+    return score
+
+def get_flippable_stones(board, row, col, color):
+    """返せる石を高速カウント"""
+    directions = [
+        (-1, 0), (1, 0), (0, -1), (0, 1),
+        (-1, -1), (-1, 1), (1, -1), (1, 1)
+    ]
+    opponent = 'black' if color == 'white' else 'white'
+    flippable_stones = []
+
+    for dx, dy in directions:
+        x, y = row + dx, col + dy
+        stones_to_flip = []
+
+        while 0 <= x < 8 and 0 <= y < 8 and board[x][y] == opponent:
+            stones_to_flip.append((x, y))
+            x += dx
+            y += dy
+
+        if 0 <= x < 8 and 0 <= y < 8 and board[x][y] == color:
+            flippable_stones.extend(stones_to_flip)
+
+    return flippable_stones
 
 def parallel_negaScout(board, color, depth):
     with ProcessPoolExecutor(max_workers=mp.cpu_count()) as executor:
@@ -287,6 +368,36 @@ def negaScout(board, depth, alpha, beta, color):
 
     trans_table.set(board_hash, {'depth': depth, 'score': max_score})
     return max_score
+
+def alpha_beta_with_timeout(board, depth, alpha, beta, maximizing_player, player):
+    # 探索開始時刻を記録
+    start_time = time.time()
+    
+    def should_timeout():
+        return time.time() - start_time > (AI_TIMEOUT * 0.8)  # 80%のタイムアウト閾値
+    
+    def alpha_beta_inner(board, depth, alpha, beta, maximizing_player, player):
+        if should_timeout():
+            raise TimeoutError()
+            
+        if depth == 0 or not has_valid_move(board, 'black') and not has_valid_move(board, 'white'):
+            return evaluate_board(board, player)
+
+        # キャッシュチェック
+        board_hash = str(board)
+        cache_entry = trans_table.get(board_hash)
+        if cache_entry and cache_entry.get('depth', 0) >= depth:
+            return cache_entry['score']
+
+        # ...existing alpha_beta code...
+        
+        trans_table.set(board_hash, {'depth': depth, 'score': best_score})
+        return best_score
+
+    try:
+        return alpha_beta_inner(board, depth, alpha, beta, maximizing_player, player)
+    except TimeoutError:
+        return evaluate_board(board, player)  # タイムアウト時は現在の評価値を返す
 
 def evaluate_board(board, player):
     # 評価関数の強化

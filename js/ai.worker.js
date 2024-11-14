@@ -1,7 +1,13 @@
 let baseUrl = 'http://localhost:5000';
 
 self.onmessage = async function(e) {
-    const { board, color } = e.data;
+    const { board, color, remainingMoves } = e.data;
+    
+    // 残り手数が0の場合は即座に終了
+    if (remainingMoves === 0) {
+        self.postMessage({ move: null, evaluation: 0 });
+        return;
+    }
     
     try {
         // CORSヘッダーを追加
@@ -13,10 +19,11 @@ self.onmessage = async function(e) {
                 'Access-Control-Allow-Methods': 'POST',
                 'Access-Control-Allow-Headers': 'Content-Type'
             },
-            mode: 'cors', // CORSモードを明示的に指定
+            mode: 'cors', // CORS���ードを明示的に指定
             body: JSON.stringify({ 
                 board: board,
-                color: color
+                color: color,
+                remainingMoves: remainingMoves  // 残り手数を送信
             })
         });
 
@@ -41,11 +48,15 @@ self.onmessage = async function(e) {
     } catch (error) {
         console.error('AI Error:', error);
         // エラー時のフォールバック処理
-        const move = findLocalBestMove(board, color);
-        self.postMessage({ 
-            move: move,
-            evaluation: 0 
-        });
+        if (remainingMoves === 0) {
+            self.postMessage({ move: null, evaluation: 0 });
+        } else {
+            const move = findLocalBestMove(board, color);
+            self.postMessage({ 
+                move: move,
+                evaluation: 0 
+            });
+        }
     }
 };
 
@@ -53,25 +64,76 @@ function findLocalBestMove(board, color) {
     const moves = findPossibleMoves(board, color);
     if (moves.length === 0) return null;
 
-    // 角を優先
-    for (const [cornerX, cornerY] of [[0,0], [0,7], [7,0], [7,7]]) {
-        const cornerMove = moves.find(([x, y]) => x === cornerX && y === cornerY);
-        if (cornerMove) return cornerMove;
-    }
+    // 角が取れる場合は即座に返す
+    const cornerMove = moves.find(([x, y]) => 
+        (x === 0 && y === 0) || (x === 0 && y === 7) || 
+        (x === 7 && y === 0) || (x === 7 && y === 7)
+    );
+    if (cornerMove) return cornerMove;
 
-    // 危険な手を避ける
-    const safeMoves = moves.filter(([x, y]) => {
-        if ((x === 0 || x === 7) && (y === 1 || y === 6)) return false;
-        if ((x === 1 || x === 6) && (y === 0 || y === 7)) return false;
-        if ((x === 1 || x === 6) && (y === 1 || y === 6)) return false;
-        return true;
+    // その他の手を素早く評価
+    const scoredMoves = moves.map(move => {
+        const score = quickMoveEvaluation(board, move, color);
+        return { move, score };
     });
 
-    if (safeMoves.length > 0) {
-        return safeMoves[0];
+    // スコアで降順ソートして最善手を返す
+    scoredMoves.sort((a, b) => b.score - a.score);
+    return scoredMoves[0].move;
+}
+
+function quickMoveEvaluation(board, [row, col], color) {
+    let score = 0;
+    
+    // 位置による評価
+    const positionScore = POSITION_WEIGHTS[row][col];
+    score += positionScore;
+    
+    // 返せる石の数による評価
+    const newBoard = JSON.parse(JSON.stringify(board));
+    const flippedCount = countFlippableStones(board, row, col, color);
+    score += flippedCount * 5;
+    
+    return score;
+}
+
+// 位置の重み付けテーブルを事前定義
+const POSITION_WEIGHTS = [
+    [100, -20, 20, 5, 5, 20, -20, 100],
+    [-20, -40, -5, -5, -5, -5, -40, -20],
+    [20, -5, 15, 3, 3, 15, -5, 20],
+    [5, -5, 3, 3, 3, 3, -5, 5],
+    [5, -5, 3, 3, 3, 3, -5, 5],
+    [20, -5, 15, 3, 3, 15, -5, 20],
+    [-20, -40, -5, -5, -5, -5, -40, -20],
+    [100, -20, 20, 5, 5, 20, -20, 100]
+];
+
+function quickEvaluate(board, color) {
+    const opponent = color === 'black' ? 'white' : 'black';
+    let score = 0;
+    
+    // 位置の重み付けマップ
+    const weights = [
+        [120, -20, 20, 5, 5, 20, -20, 120],
+        [-20, -40, -5, -5, -5, -5, -40, -20],
+        [20, -5, 15, 3, 3, 15, -5, 20],
+        [5, -5, 3, 3, 3, 3, -5, 5],
+        [5, -5, 3, 3, 3, 3, -5, 5],
+        [20, -5, 15, 3, 3, 15, -5, 20],
+        [-20, -40, -5, -5, -5, -5, -40, -20],
+        [120, -20, 20, 5, 5, 20, -20, 120]
+    ];
+
+    // 簡易評価（高速化のため）
+    for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+            if (board[i][j] === color) score += weights[i][j];
+            else if (board[i][j] === opponent) score -= weights[i][j];
+        }
     }
 
-    return moves[0];
+    return score;
 }
 
 // Fallback utilities in case server fails
