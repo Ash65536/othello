@@ -1,11 +1,30 @@
 document.addEventListener('DOMContentLoaded', () => {
     const boardElement = document.querySelector('.board');
     const messageElement = document.querySelector('.message');
-    const board = createBoard();
+    const restartButton = document.getElementById('restartButton');
+    let board = createBoard();
     let currentPlayer = 'black';
     let isProcessing = false;  // 追加: 処理中フラグ
     let aiWorker = null;
     let lastMove = null;  // Add this line to track the last move
+    let currentDifficulty = 'normal';  // デフォルトの難易度
+    const difficultyButtons = document.querySelectorAll('.difficulty-btn');
+    
+    // 難易度選択の処理
+    difficultyButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            difficultyButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentDifficulty = btn.dataset.level;
+            if (aiWorker) {
+                aiWorker.terminate();
+                aiWorker = null;
+            }
+        });
+    });
+
+    // デフォルトの難易度をアクティブに
+    document.querySelector(`[data-level="normal"]`).classList.add('active');
 
     // タッチデバイス検出
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -278,6 +297,9 @@ document.addEventListener('DOMContentLoaded', () => {
             result += ' - 引き分け';
         }
         messageElement.textContent = result;
+
+        // リスタートボタンを表示
+        restartButton.style.display = 'block';
     }
 
     function initAIWorker() {
@@ -312,19 +334,20 @@ document.addEventListener('DOMContentLoaded', () => {
         isProcessing = true;
         showLoading();
         
-        // 最小待機時間を設定（1秒）
-        const minWaitTime = 1000;
-        const startTime = Date.now();
-        
-        // AIに送信する前に最小待機時間を確保
         const gameState = {
             board: board,
             color: 'white',
             counts: countStones(board),
             lastMove: lastMove || null,
-            remainingMoves: board.flat().filter(cell => cell === null).length
+            remainingMoves: board.flat().filter(cell => cell === null).length,
+            difficulty: currentDifficulty  // 難易度を追加
         };
+
+        // 最小待機時間を設定（1秒）
+        const minWaitTime = 1000;
+        const startTime = Date.now();
         
+        // AIに送信する前に最小待機時間を確保
         const timeoutId = setTimeout(() => {
             if (aiWorker) {
                 aiWorker.terminate();
@@ -409,13 +432,43 @@ document.addEventListener('DOMContentLoaded', () => {
             // 角の隣を避ける
             if ((x === 0 || x === 7) && (y === 1 || y === 6)) return false;
             if ((x === 1 || x === 6) && (y === 0 || y === 7)) return false;
-            // X打ちを避ける
+            // X打ちを避け��
             if ((x === 1 || x === 6) && (y === 1 || y === 6)) return false;
             return true;
         });
 
         return safeMoves.length > 0 ? safeMoves[0] : moves[0];
     }
+
+    function restartGame() {
+        // ボードの初期化
+        board = createBoard();
+        board[3][3] = 'white';
+        board[3][4] = 'black';
+        board[4][3] = 'black';
+        board[4][4] = 'white';
+        
+        // 状態のリセット
+        currentPlayer = 'black';
+        isProcessing = false;
+        lastMove = null;
+        
+        // AIワーカーのクリーンアップ
+        if (aiWorker) {
+            aiWorker.terminate();
+            aiWorker = null;
+        }
+        
+        // UIの更新
+        messageElement.textContent = '';
+        restartButton.style.display = 'none';
+        
+        // ボードの再描画
+        renderBoard();
+    }
+
+    // リスタートボタンのイベントリスナー
+    restartButton.addEventListener('click', restartGame);
 
     renderBoard();
 });

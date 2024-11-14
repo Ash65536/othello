@@ -144,6 +144,41 @@ body {
     }
 }
 
+.difficulty-selector {
+    margin-bottom: 20px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.difficulty-btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background-color: #34495e;
+    color: white;
+}
+
+.difficulty-btn.active {
+    background-color: #2ecc71;
+    transform: scale(1.1);
+}
+
+/* モバイル向け調整 */
+@media screen and (max-width: 480px) {
+    .difficulty-selector {
+        margin-bottom: 10px;
+    }
+    
+    .difficulty-btn {
+        padding: 8px 15px;
+        font-size: 0.9em;
+    }
+}
+
 /* モバイル向け最適化 */
 @media screen and (max-width: 480px) {
     body {
@@ -221,5 +256,32 @@ body {
     .cell {
         width: 45px;
         height: 45px;
+    }
+}
+
+.restart-btn {
+    margin-top: 20px;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    background-color: #2ecc71;
+    color: white;
+    font-size: 1.2em;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: none;  /* 初期状態では非表示 */
+}
+
+.restart-btn:hover {
+    transform: scale(1.05);
+    background-color: #27ae60;
+}
+
+/* モバイル向け調整 */
+@media screen and (max-width: 480px) {
+    .restart-btn {
+        padding: 8px 15px;
+        font-size: 1em;
+        margin-top: 15px;
     }
 }

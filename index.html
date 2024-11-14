@@ -9,8 +9,16 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <div class="difficulty-selector">
+        <button class="difficulty-btn" data-level="easy">かんたん</button>
+        <button class="difficulty-btn" data-level="normal">ふつう</button>
+        <button class="difficulty-btn" data-level="hard">つよい</button>
+        <button class="difficulty-btn" data-level="expert">ゲキムズ</button>
+        <button class="difficulty-btn" data-level="god">神</button>
+    </div>
     <div class="board"></div>
     <div class="message"></div>
+    <button id="restartButton" class="restart-btn">もう一度プレイ</button>
     <!-- スクリプトの順序と参照を修正 -->
     <script src="js/Utils.js"></script>
     <script src="js/GameManager.js"></script>

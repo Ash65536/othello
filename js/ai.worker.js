@@ -1,64 +1,87 @@
 let baseUrl = 'http://localhost:5000';
 
 self.onmessage = async function(e) {
-    const { board, color, remainingMoves } = e.data;
-    
-    // 残り手数が0の場合は即座に終了
-    if (remainingMoves === 0) {
-        self.postMessage({ move: null, evaluation: 0 });
-        return;
-    }
+    const { board, color, remainingMoves, difficulty } = e.data;
     
     try {
-        // CORSヘッダーを追加
-        const response = await fetch(`${baseUrl}/ai_move`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'POST',
-                'Access-Control-Allow-Headers': 'Content-Type'
-            },
-            mode: 'cors', // CORS���ードを明示的に指定
-            body: JSON.stringify({ 
-                board: board,
-                color: color,
-                remainingMoves: remainingMoves  // 残り手数を送信
-            })
-        });
+        let move = null;
+        let evaluation = 0;
 
-        if (!response.ok) {
-            throw new Error('Server response was not ok');
+        switch (difficulty) {
+            case 'easy':
+                // かんたん: 完全ランダム
+                move = getRandomMove(board, color);
+                break;
+            
+            case 'normal':
+                // ふつう: 基本的な評価関数と浅い探索
+                move = await getNormalMove(board, color);
+                break;
+            
+            case 'hard':
+                // つよい: より深い探索と改善された評価関数
+                move = await getHardMove(board, color);
+                break;
+            
+            case 'expert':
+                // ゲキムズ: 完全な探索と高度な評価関数
+                move = await getExpertMove(board, color);
+                break;
+            
+            case 'god':
+                // 神: すべての最適化を適用
+                move = await getGodMove(board, color);
+                break;
         }
 
-        const data = await response.json();
-        if (data.move) {
-            self.postMessage({ 
-                move: [data.move.row, data.move.col],
-                evaluation: data.evaluation
-            });
-        } else {
-            // フォールバック処理
-            const move = findLocalBestMove(board, color);
-            self.postMessage({ 
-                move: move,
-                evaluation: 0
-            });
-        }
+        self.postMessage({ move, evaluation });
     } catch (error) {
         console.error('AI Error:', error);
-        // エラー時のフォールバック処理
-        if (remainingMoves === 0) {
-            self.postMessage({ move: null, evaluation: 0 });
-        } else {
-            const move = findLocalBestMove(board, color);
-            self.postMessage({ 
-                move: move,
-                evaluation: 0 
-            });
-        }
+        // エラー時は簡単な手を選択
+        const move = getRandomMove(board, color);
+        self.postMessage({ move, evaluation: 0 });
     }
 };
+
+function getRandomMove(board, color) {
+    const moves = findPossibleMoves(board, color);
+    if (moves.length === 0) return null;
+    return moves[Math.floor(Math.random() * moves.length)];
+}
+
+function getNormalMove(board, color) {
+    // 基本的なMinMax（深さ2）
+    const moves = findPossibleMoves(board, color);
+    if (moves.length === 0) return null;
+    
+    // 角を優先
+    const cornerMove = moves.find(([x, y]) => 
+        (x === 0 && y === 0) || (x === 0 && y === 7) || 
+        (x === 7 && y === 0) || (x === 7 && y === 7)
+    );
+    if (cornerMove) return cornerMove;
+    
+    return moves[Math.floor(Math.random() * moves.length)];
+}
+
+function getHardMove(board, color) {
+    // AlphaBeta探索（深さ4）と優先度による手の選択
+    return findBestMove(board, color, 4);
+}
+
+function getExpertMove(board, color) {
+    // NegaScout + トランスポジションテーブル（深さ6）
+    return negaScout(board, 6, -Infinity, Infinity, color);
+}
+
+function getGodMove(board, color) {
+    // モンテカルロ木探索 + パターンデータベース + 完全読み
+    const remainingMoves = board.flat().filter(cell => cell === null).length;
+    if (remainingMoves <= 10) {
+        return findPerfectMove(board, color);
+    }
+    return monteCarloTreeSearch(board, color, 1000);
+}
 
 function findLocalBestMove(board, color) {
     const moves = findPossibleMoves(board, color);
