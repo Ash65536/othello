@@ -74,28 +74,117 @@ self.onmessage = async function(e) {
 
 function getRandomMove(board, color) {
     const moves = findPossibleMoves(board, color);
-    if (moves.length === 0) return null;
-    return moves[Math.floor(Math.random() * moves.length)];
+    if (!moves.length) return null;
+    
+    // かんたん: 50%ランダム、50%基本評価で少し強く
+    if (Math.random() < 0.5) {
+        return moves[Math.floor(Math.random() * moves.length)];
+    }
+
+    // 基本的な評価を行う
+    const scoredMoves = moves.map(move => {
+        const score = evaluateBasicMove(board, move, color);
+        return { move, score };
+    });
+    
+    scoredMoves.sort((a, b) => b.score - a.score);
+    return scoredMoves[0].move;
+}
+
+function evaluateBasicMove(board, move, color) {
+    let score = 0;
+    const [row, col] = move;
+    
+    // 角は高評価
+    if ((row === 0 || row === 7) && (col === 0 || col === 7)) {
+        score += 100;
+    }
+    
+    // 端も評価
+    if (row === 0 || row === 7 || col === 0 || col === 7) {
+        score += 20;
+    }
+    
+    // ひっくり返せる数も考慮
+    const flipped = getFlippableCells(board, row, col, color);
+    score += flipped.length * 5;
+    
+    return score;
 }
 
 function getNormalMove(board, color) {
-    // 基本的なMinMax（深さ2）
-    const moves = findPossibleMoves(board, color);
-    if (moves.length === 0) return null;
+    const remainingMoves = board.flat().filter(cell => cell === null).length;
+    const depth = remainingMoves <= 12 ? 4 : 3; // 終盤は深く読む
     
-    // 角を優先
-    const cornerMove = moves.find(([x, y]) => 
-        (x === 0 && y === 0) || (x === 0 && y === 7) || 
-        (x === 7 && y === 0) || (x === 7 && y === 7)
-    );
-    if (cornerMove) return cornerMove;
+    // ふつう: AlphaBeta探索 + パターン認識
+    const moves = sortMovesByPriority(board, color);
+    if (!moves.length) return null;
     
-    return moves[Math.floor(Math.random() * moves.length)];
+    // 即詰み回避と必勝手を探索
+    const criticalMove = findCriticalMove(board, color);
+    if (criticalMove) return criticalMove;
+    
+    let bestMove = moves[0];
+    let bestScore = -Infinity;
+    
+    for (const move of moves) {
+        const newBoard = JSON.parse(JSON.stringify(board));
+        applyMove(newBoard, move[0], move[1], color);
+        const score = -alphaBetaWithMemory(
+            newBoard, 
+            depth - 1,
+            -Infinity,
+            Infinity,
+            color === 'black' ? 'white' : 'black'
+        );
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = move;
+        }
+    }
+    
+    return bestMove;
 }
 
 function getHardMove(board, color) {
-    // AlphaBeta探索（深さ4）と優先度による手の選択
-    return findBestMove(board, color, 4);
+    const remainingMoves = board.flat().filter(cell => cell === null).length;
+    const isEndgame = remainingMoves <= 14;
+    const depth = isEndgame ? 6 : remainingMoves <= 25 ? 5 : 4;
+    
+    // つよい: NegaScout + 評価関数強化 + 定石
+    if (remainingMoves >= 45) {
+        const bookMove = getOpeningBookMove(board, color);
+        if (bookMove) return bookMove;
+    }
+    
+    const moves = sortMovesByPriority(board, color);
+    if (!moves.length) return null;
+    
+    let bestMove = moves[0];
+    let bestScore = -Infinity;
+    let alpha = -Infinity;
+    let beta = Infinity;
+    
+    for (const move of moves) {
+        const newBoard = JSON.parse(JSON.stringify(board));
+        applyMove(newBoard, move[0], move[1], color);
+        const score = -negaScoutEnhanced(
+            newBoard,
+            depth - 1,
+            -beta,
+            -alpha,
+            color === 'black' ? 'white' : 'black'
+        );
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = move;
+        }
+        alpha = Math.max(alpha, score);
+    }
+    
+    return bestMove;
 }
 
 async function getExpertMove(board, color) {
@@ -141,95 +230,6 @@ async function getGodMove(board, color) {
     // 神: ハイブリッドエンジン + パターンデータベース + 完全読み
     const remainingMoves = board.flat().filter(cell => cell === null).length;
     
-    if (remainingMoves <= 14) {
-        // 終盤は完全読みを実行
-        return findEndgamePerfectMove(board, color);
-    }
-    
-    if (remainingMoves >= 45) {
-        // 序盤は定石データベースを使用
-        const bookMove = getOpeningBookMove(board, color);
-        if (bookMove) return bookMove;
-    }
-    
-    // 中盤はMTD(f)とNegaScoutを組み合わせた探索
-    return findHybridBestMove(board, color);
-}
-
-function calculateDynamicDepth(remainingMoves) {
-    if (remainingMoves <= 10) return 12;      // 終盤
-    if (remainingMoves <= 16) return 9;       // 終盤近く
-    if (remainingMoves <= 25) return 7;       // 中盤後半
-    if (remainingMoves <= 35) return 6;       // 中盤
-    return 5;                                 // 序盤
-}
-
-function findCriticalMove(board, color) {
-    const moves = findPossibleMoves(board, color);
-    
-    // 1. 勝利確定手
-    const winningMove = findWinningMove(board, color);
-    if (winningMove) return winningMove;
-    
-    // 2. 相手の必勝手阻止
-    const opponent = color === 'black' ? 'white' : 'black';
-    const opponentWinningMove = findWinningMove(board, opponent);
-    if (opponentWinningMove) {
-        const preventionMove = findPreventionMove(board, color, opponentWinningMove);
-        if (preventionMove) return preventionMove;
-    }
-    
-    // 3. 角の獲得
-    const cornerMove = moves.find(([x, y]) => 
-        (x === 0 && y === 0) || (x === 0 && y === 7) || 
-        (x === 7 && y === 0) || (x === 7 && y === 7)
-    );
-    if (cornerMove) return cornerMove;
-    
-    return null;
-}
-
-async function iterativeDeepening(board, maxDepth, alpha, beta, color) {
-    let bestScore = -Infinity;
-    
-    for (let depth = 1; depth <= maxDepth; depth++) {
-        const score = await negaScoutWithTimeout(board, depth, alpha, beta, color);
-        if (score !== null) {
-            bestScore = score;
-        } else {
-            break; // タイムアウト発生
-        }
-    }
-    
-    return bestScore;
-}
-
-function findHybridBestMove(board, color) {
-    const moves = sortMovesByPriority(board, color);
-    let bestMove = moves[0];
-    let bestScore = -Infinity;
-    
-    // MTD(f)による探索
-    const firstGuess = 0;
-    const score = mtdf(board, firstGuess, 8, color);
-    
-    // NegaScoutによる詳細探索
-    for (const move of moves.slice(0, 5)) { // 上位5手のみ詳細に評価
-        const newBoard = JSON.parse(JSON.stringify(board));
-        applyMove(newBoard, move[0], move[1], color);
-        const moveScore = -negaScoutEnhanced(newBoard, 7, -Infinity, Infinity, color === 'black' ? 'white' : 'black');
-        
-        if (moveScore > bestScore) {
-            bestScore = moveScore;
-            bestMove = move;
-        }
-    }
-    
-    return bestMove;
-}
-
-function mtdf(board, firstGuess, depth, color) {
-    let g = firstGuess;
     let upperBound = Infinity;
     let lowerBound = -Infinity;
     

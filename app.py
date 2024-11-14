@@ -47,37 +47,70 @@ trans_table = TranspositionTable()
 class OthelloDQN(nn.Module):
     def __init__(self):
         super(OthelloDQN, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
-        self.conv3 = nn.Conv2d(128, 128, kernel_size=3, padding=1)
-        self.fc1 = nn.Linear(128 * 8 * 8, 512)
-        self.fc2 = nn.Linear(512, 64)
+        # 入力: 3チャンネル (自分の石、相手の石、空きマス) の8x8ボード
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.ReLU()
+        )
         
+        self.fc_layers = nn.Sequential(
+            nn.Linear(128 * 8 * 8, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64)  # 出力は8x8=64の行動空間
+        )
+
     def forward(self, x):
-        x = torch.relu(self.conv1(x))
-        x = torch.relu(self.conv2(x))
-        x = torch.relu(self.conv3(x))
+        x = self.conv_layers(x)
         x = x.view(-1, 128 * 8 * 8)
-        x = torch.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+        return self.fc_layers(x)
+
+class ReplayBuffer:
+    def __init__(self, capacity=10000):
+        self.capacity = capacity
+        self.buffer = []
+        self.position = 0
+    
+    def push(self, state, action, reward, next_state, done):
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(None)
+        self.buffer[self.position] = (state, action, reward, next_state, done)
+        self.position = (self.position + 1) % self.capacity
+    
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        state, action, reward, next_state, done = zip(*batch)
+        return (torch.cat(state), 
+                torch.tensor(action), 
+                torch.tensor(reward), 
+                torch.cat(next_state),
+                torch.tensor(done))
+    
+    def __len__(self):
+        return len(self.buffer)
 
 class DQNAgent:
     def __init__(self):
-        self.model = OthelloDQN()
-        self.target_model = OthelloDQN()
-        self.target_model.load_state_dict(self.model.state_dict())
-        self.optimizer = optim.Adam(self.model.parameters())
-        self.memory = deque(maxlen=10000)
-        self.batch_size = 32
-        self.gamma = 0.95
-        self.epsilon = 0.1
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(self.device)
-        self.target_model.to(self.device)
+        self.policy_net = OthelloDQN().to(self.device)
+        self.target_net = OthelloDQN().to(self.device)
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        
+        self.optimizer = optim.Adam(self.policy_net.parameters())
+        self.memory = ReplayBuffer()
+        
+        self.batch_size = 32
+        self.gamma = 0.99
+        self.epsilon = 0.1
+        self.target_update = 10
+        self.steps_done = 0
 
     def get_state(self, board):
-        # ボードを3チャンネルの状態に変換（自分の石、相手の石、空きマス）
         state = np.zeros((3, 8, 8), dtype=np.float32)
         for i in range(8):
             for j in range(8):
@@ -89,41 +122,73 @@ class DQNAgent:
                     state[2][i][j] = 1
         return torch.FloatTensor(state).unsqueeze(0).to(self.device)
 
-    def get_action(self, state, valid_moves):
-        if valid_moves and random.random() > self.epsilon:
+    def select_action(self, state, valid_moves):
+        if not valid_moves:
+            return None
+            
+        self.steps_done += 1
+        if random.random() > self.epsilon:
             with torch.no_grad():
-                q_values = self.model(state)
-                # 有効な手のみから選択
+                q_values = self.policy_net(state)
                 valid_q_values = {tuple(move): q_values[0][move[0] * 8 + move[1]].item() 
                                 for move in valid_moves}
                 return max(valid_q_values.items(), key=lambda x: x[1])[0]
-        return tuple(random.choice(valid_moves)) if valid_moves else None
+        return tuple(random.choice(valid_moves))
 
-    def train(self, batch):
-        if len(batch) < self.batch_size:
+    def train(self):
+        if len(self.memory) < self.batch_size:
             return
-
-        batch = random.sample(batch, self.batch_size)
-        states = torch.cat([x[0] for x in batch])
-        actions = torch.tensor([[x[1][0] * 8 + x[1][1]] for x in batch]).long()
-        rewards = torch.tensor([x[2] for x in batch]).float()
-        next_states = torch.cat([x[3] for x in batch])
-        dones = torch.tensor([x[4] for x in batch]).float()
-
-        current_q_values = self.model(states).gather(1, actions)
-        next_q_values = self.target_model(next_states).max(1)[0].detach()
-        target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
         
-        loss = nn.MSELoss()(current_q_values.squeeze(), target_q_values)
+        states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
+        
+        # Q(s_t, a) computation
+        state_action_values = self.policy_net(states).gather(1, actions.unsqueeze(-1))
+        
+        # max_a Q(s_{t+1}, a) computation
+        with torch.no_grad():
+            next_state_values = self.target_net(next_states).max(1)[0]
+            next_state_values[dones] = 0.0
+        
+        # Expected Q values
+        expected_state_action_values = rewards + (self.gamma * next_state_values)
+        
+        # Compute loss
+        criterion = nn.SmoothL1Loss()
+        loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+        
+        # Optimize the model
         self.optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
+        
+        # Update target network
+        if self.steps_done % self.target_update == 0:
+            self.target_net.load_state_dict(self.policy_net.state_dict())
 
-    def update_target_model(self):
-        self.target_model.load_state_dict(self.model.state_dict())
+    def save_model(self, path):
+        torch.save({
+            'policy_net_state_dict': self.policy_net.state_dict(),
+            'target_net_state_dict': self.target_net.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'steps_done': self.steps_done
+        }, path)
 
-# DQNエージェントのインスタンス化
+    def load_model(self, path):
+        if os.path.exists(path):
+            checkpoint = torch.load(path)
+            self.policy_net.load_state_dict(checkpoint['policy_net_state_dict'])
+            self.target_net.load_state_dict(checkpoint['target_net_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.steps_done = checkpoint['steps_done']
+
+# DQNエージェントのインスタンス化と既存モデルの読み込み
 dqn_agent = DQNAgent()
+try:
+    dqn_agent.load_model('model/othello_dqn_model.pth')
+    print("Loaded existing DQN model")
+except:
+    print("Starting with a new DQN model")
 
 # 棋譜管理用のクラスを追加
 class GameRecord:
@@ -199,7 +264,7 @@ def ai_move():
         # DQNによる手の選択
         state = dqn_agent.get_state(board)
         valid_moves = find_possible_moves(board, color)
-        move = dqn_agent.get_action(state, valid_moves)
+        move = dqn_agent.select_action(state, valid_moves)
         
         if move:
             # 経験を保存
@@ -209,11 +274,11 @@ def ai_move():
             reward = evaluate_board(new_board, color)
             done = not has_valid_move(new_board, 'black') and not has_valid_move(new_board, 'white')
             
-            dqn_agent.memory.append((state, move, reward, next_state, done))
+            dqn_agent.memory.push(state, move, reward, next_state, done)
             
             # 学習
             if len(dqn_agent.memory) >= dqn_agent.batch_size:
-                dqn_agent.train(dqn_agent.memory)
+                dqn_agent.train()
             
             # AIの手を棋譜に記録
             if current_game:
@@ -272,24 +337,24 @@ def train_from_game_record(game_record):
         done = (move_data == game_record.moves[-1])
         
         # 経験を記憶
-        dqn_agent.memory.append((state, move, reward, next_state, done))
+        dqn_agent.memory.push(state, move, reward, next_state, done)
     
     # バッチ学習の実行
     if len(dqn_agent.memory) >= dqn_agent.batch_size:
-        dqn_agent.train(dqn_agent.memory)
+        dqn_agent.train()
         learning_logger.log(f"Batch training completed, memory size: {len(dqn_agent.memory)}")
 
 # 定期的なモデルの保存と更新
 def periodic_model_update():
     while True:
         time.sleep(3600)  # 1時間ごと
-        dqn_agent.update_target_model()
-        torch.save(dqn_agent.model.state_dict(), 'othello_dqn_model.pth')
+        dqn_agent.target_net.load_state_dict(dqn_agent.policy_net.state_dict())
+        dqn_agent.save_model('model/othello_dqn_model.pth')
 
 # モデルの読み込み
 try:
-    dqn_agent.model.load_state_dict(torch.load('othello_dqn_model.pth'))
-    dqn_agent.target_model.load_state_dict(dqn_agent.model.state_dict())
+    dqn_agent.load_model('model/othello_dqn_model.pth')
+    dqn_agent.target_net.load_state_dict(dqn_agent.policy_net.state_dict())
 except:
     print("No existing model found. Starting with a new model.")
 
@@ -830,7 +895,7 @@ def play_self_game():
         if has_valid_move(board, current_color):
             state = dqn_agent.get_state(board)
             valid_moves = find_possible_moves(board, current_color)
-            move = dqn_agent.get_action(state, valid_moves)
+            move = dqn_agent.select_action(state, valid_moves)
             
             if move:
                 moves_history.append({
@@ -873,11 +938,11 @@ def train_from_self_play():
         
         # 経験を記憶
         done = (game_data['moves'][-1] == move_data)
-        dqn_agent.memory.append((state, move, reward, next_state, done))
+        dqn_agent.memory.push(state, move, reward, next_state, done)
 
     # バッチ学習の実行
     if len(dqn_agent.memory) >= dqn_agent.batch_size:
-        dqn_agent.train(dqn_agent.memory)
+        dqn_agent.train()
 
 # 定期的な自己対戦トレーニングを行うバックグラウンド処理
 def periodic_self_play_training():
