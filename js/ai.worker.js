@@ -91,11 +91,36 @@ function quickMoveEvaluation(board, [row, col], color) {
     score += positionScore;
     
     // 返せる石の数による評価
-    const newBoard = JSON.parse(JSON.stringify(board));
-    const flippedCount = countFlippableStones(board, row, col, color);
-    score += flippedCount * 5;
+    const flippableStones = getFlippableStones(board, row, col, color);
+    score += flippableStones.length * 5;
     
     return score;
+}
+
+function getFlippableStones(board, row, col, color) {
+    const directions = [
+        [-1, 0], [1, 0], [0, -1], [0, 1],
+        [-1, -1], [-1, 1], [1, -1], [1, 1]
+    ];
+    const opponent = color === 'black' ? 'white' : 'black';
+    const flippableStones = [];
+
+    for (const [dx, dy] of directions) {
+        let x = row + dx, y = col + dy;
+        let stonesToFlip = [];
+
+        while (x >= 0 && x < 8 && y >= 0 && y < 8 && board[x][y] === opponent) {
+            stonesToFlip.push([x, y]);
+            x += dx;
+            y += dy;
+        }
+
+        if (x >= 0 && x < 8 && y >= 0 && y < 8 && board[x][y] === color) {
+            flippableStones.push(...stonesToFlip);
+        }
+    }
+
+    return flippableStones;
 }
 
 // 位置の重み付けテーブルを事前定義
