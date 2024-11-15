@@ -7,6 +7,51 @@ document.addEventListener('DOMContentLoaded', () => {
     let aiWorker = null;
     let lastMove = null;  // Add this line to track the last move
 
+    // 難易度関連の変数を追加
+    let currentDifficulty = 'normal';  // デフォルトの難易度
+    const difficultyButtons = document.querySelectorAll('.difficulty-btn');
+
+    // 難易度選択の処理
+    difficultyButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            // 選択状態の更新
+            difficultyButtons.forEach(btn => btn.classList.remove('selected'));
+            button.classList.add('selected');
+            
+            // 難易度の更新
+            currentDifficulty = button.dataset.difficulty;
+            
+            // ゲームのリセット
+            resetGame();
+        });
+        
+        // デフォルトの難易度を選択状態に
+        if (button.dataset.difficulty === currentDifficulty) {
+            button.classList.add('selected');
+        }
+    });
+
+    function resetGame() {
+        // ボードの初期化
+        for (let i = 0; i < 8; i++) {
+            for (let j = 0; j < 8; j++) {
+                board[i][j] = null;
+            }
+        }
+        
+        // 初期配置
+        board[3][3] = 'white';
+        board[3][4] = 'black';
+        board[4][3] = 'black';
+        board[4][4] = 'white';
+        
+        currentPlayer = 'black';
+        isProcessing = false;
+        messageElement.textContent = '';
+        
+        renderBoard();
+    }
+
     // タッチデバイス検出
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     let touchStartTime = 0;
@@ -49,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleCellClick(row, col) {
-        // タッチデバイスでのダブルタップ防止
+        // タッチデバイス��のダブルタップ防止
         if (isTouchDevice) {
             const now = Date.now();
             if (now - touchStartTime < 300) {
@@ -322,7 +367,8 @@ document.addEventListener('DOMContentLoaded', () => {
             color: 'white',
             counts: countStones(board),
             lastMove: lastMove || null,
-            remainingMoves: board.flat().filter(cell => cell === null).length
+            remainingMoves: board.flat().filter(cell => cell === null).length,
+            difficulty: currentDifficulty  // 難易度を追加
         };
         
         const timeoutId = setTimeout(() => {

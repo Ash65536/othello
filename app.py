@@ -37,12 +37,50 @@ class TranspositionTable:
 
 trans_table = TranspositionTable()
 
+# AI難易度の定数を追加
+AI_DIFFICULTY = {
+    'easy': {
+        'depth': 2,
+        'randomness': 0.3,  # 30%の確率でランダムな手を選択
+        'eval_weight': 0.7  # 評価関数の重みを70%に抑える
+    },
+    'normal': {
+        'depth': 4,
+        'randomness': 0.1,
+        'eval_weight': 1.0
+    },
+    'hard': {
+        'depth': 5,
+        'randomness': 0.0,
+        'eval_weight': 1.0
+    },
+    'extreme': {
+        'depth': 6,
+        'randomness': 0.0,
+        'eval_weight': 1.0
+    }
+}
+
 @app.route('/ai_move', methods=['POST'])
 def ai_move():
     data = request.json
     board = data.get('board')
     color = data.get('color', 'white')
+    difficulty = data.get('difficulty', 'normal')  # デフォルトは'normal'
     game_phase = get_game_phase(board)
+    
+    # 難易度設定を取得
+    ai_settings = AI_DIFFICULTY[difficulty]
+    
+    # 難易度別の処理
+    if difficulty == 'easy':
+        return handle_easy_mode(board, color, ai_settings)
+    elif difficulty == 'normal':
+        return handle_normal_mode(board, color, ai_settings)
+    elif difficulty == 'hard':
+        return handle_hard_mode(board, color, ai_settings)
+    elif difficulty == 'extreme':
+        return handle_extreme_mode(board, color, ai_settings)
     
     # ML予測を試みる
     possible_moves = find_possible_moves(board, color)
@@ -69,6 +107,229 @@ def ai_move():
         "move": {"row": move[0], "col": move[1]} if move else None,
         "evaluation": evaluate_board(board, color)
     })
+
+def handle_easy_mode(board, color, settings):
+    """かんたんモードのAI処理"""
+    moves = find_possible_moves(board, color)
+    if not moves:
+        return jsonify({"move": None, "evaluation": 0})
+    
+    # ランダムな手を選ぶ確率
+    if random.random() < settings['randomness']:
+        move = random.choice(moves)
+        return jsonify({
+            "move": {"row": move[0], "col": move[1]},
+            "evaluation": 0
+        })
+    
+    # 単純な評価関数で手を選択
+    best_move = None
+    best_score = float('-inf')
+    
+    for move in moves:
+        # 角は避ける（わざと）
+        if move in [(0,0), (0,7), (7,0), (7,7)]:
+            continue
+            
+        new_board = copy.deepcopy(board)
+        apply_move(new_board, move[0], move[1], color)
+        # 浅い探索深さと単純な評価
+        score = simple_evaluation(new_board, color) * settings['eval_weight']
+        
+        if score > best_score:
+            best_score = score
+            best_move = move
+    
+    # 有効な手が見つからない場合はランダムに選択
+    if best_move is None and moves:
+        best_move = random.choice(moves)
+    
+    return jsonify({
+        "move": {"row": best_move[0], "col": best_move[1]} if best_move else None,
+        "evaluation": best_score
+    })
+
+def handle_normal_mode(board, color, settings):
+    """ふつうモードのAI処理"""
+    moves = find_possible_moves(board, color)
+    if not moves:
+        return jsonify({"move": None, "evaluation": 0})
+
+    # 時々ランダムな手を選択（10%の確率）
+    if random.random() < settings['randomness']:
+        move = random.choice(moves)
+        return jsonify({
+            "move": {"row": move[0], "col": move[1]},
+            "evaluation": 0
+        })
+
+    # 通常の探索（深さ4）
+    best_moves = []
+    best_score = float('-inf')
+    
+    for move in moves:
+        new_board = copy.deepcopy(board)
+        apply_move(new_board, move[0], move[1], color)
+        # 適度な深さでの探索
+        score = alpha_beta(new_board, settings['depth'], 
+                         float('-inf'), float('inf'), 
+                         False, color) * settings['eval_weight']
+        
+        # スコアが近い手も記録（ベスト手の90%以上のスコアの手）
+        if score > best_score:
+            best_moves = [move]
+            best_score = score
+        elif score >= best_score * 0.9:
+            best_moves.append(move)
+
+    # 複数の善手からランダムに選択（より人間らしい選択に）
+    best_move = random.choice(best_moves)
+    
+    return jsonify({
+        "move": {"row": best_move[0], "col": best_move[1]},
+        "evaluation": best_score
+    })
+
+def handle_hard_mode(board, color, settings):
+    """つよいモードのAI処理"""
+    moves = find_possible_moves(board, color)
+    if not moves:
+        return jsonify({"move": None, "evaluation": 0})
+
+    empty_count = sum(row.count(None) for row in board)
+    depth = settings['depth']
+    
+    # 終盤では探索深さを増やす
+    if empty_count <= 12:
+        depth = min(empty_count, 8)
+    
+    best_move = None
+    best_score = float('-inf')
+    
+    # 並列探索を使用
+    with ProcessPoolExecutor(max_workers=min(mp.cpu_count(), 4)) as executor:
+        futures = []
+        
+        for move in moves:
+            new_board = copy.deepcopy(board)
+            apply_move(new_board, move[0], move[1], color)
+            future = executor.submit(
+                negaScout,  # より高度なアルゴリズムを使用
+                new_board,
+                depth,
+                float('-inf'),
+                float('inf'),
+                'black' if color == 'white' else 'white'
+            )
+            futures.append((move, future))
+        
+        for move, future in futures:
+            try:
+                score = -future.result(timeout=AI_TIMEOUT)
+                if score > best_score:
+                    best_score = score
+                    best_move = move
+            except TimeoutError:
+                continue
+
+    # 角が取れる場合は必ず取る
+    corner_moves = [(0,0), (0,7), (7,0), (7,7)]
+    for corner in corner_moves:
+        if corner in moves:
+            best_move = corner
+            break
+
+    return jsonify({
+        "move": {"row": best_move[0], "col": best_move[1]} if best_move else None,
+        "evaluation": best_score
+    })
+
+def handle_extreme_mode(board, color, settings):
+    """ゲキムズモードのAI処理"""
+    moves = find_possible_moves(board, color)
+    if not moves:
+        return jsonify({"move": None, "evaluation": 0})
+
+    empty_count = sum(row.count(None) for row in board)
+    
+    # 終盤の完全読み（残り16手以下）
+    if empty_count <= 16:
+        move = find_perfect_move(board, color, empty_count)
+        if move:
+            return jsonify({
+                "move": {"row": move[0], "col": move[1]},
+                "evaluation": 10000  # 必勝手の場合
+            })
+    
+    # 機械学習による手の予測を試みる
+    ml_move = model.predict_move(board, moves)
+    if ml_move and empty_count > 45:  # 序盤のみML使用
+        return jsonify({
+            "move": {"row": ml_move[0], "col": ml_move[1]},
+            "evaluation": 500
+        })
+    
+    # 通常の探索（より深く）
+    best_move = None
+    best_score = float('-inf')
+    alpha = float('-inf')
+    beta = float('inf')
+    
+    # 並列探索with反復深化
+    with ProcessPoolExecutor(max_workers=min(mp.cpu_count(), 4)) as executor:
+        max_depth = 8 if empty_count <= 20 else 6  # 終盤に近いほど深く読む
+        futures = []
+        
+        # 探索順序の最適化
+        sorted_moves = sort_moves_by_priority(board, moves, color)
+        
+        for move in sorted_moves:
+            new_board = copy.deepcopy(board)
+            apply_move(new_board, move[0], move[1], color)
+            
+            future = executor.submit(
+                iterative_deepening_search,  # 反復深化探索
+                new_board,
+                max_depth,
+                alpha,
+                beta,
+                color,
+                empty_count
+            )
+            futures.append((move, future))
+        
+        for move, future in futures:
+            try:
+                score = future.result(timeout=AI_TIMEOUT)
+                if score > best_score:
+                    best_score = score
+                    best_move = move
+                alpha = max(alpha, score)
+            except TimeoutError:
+                continue
+
+    if best_move is None and moves:
+        best_move = sorted_moves[0]  # フォールバック
+
+    return jsonify({
+        "move": {"row": best_move[0], "col": best_move[1]},
+        "evaluation": best_score
+    })
+
+def simple_evaluation(board, color):
+    """単純な評価関数（かんたんモード用）"""
+    opponent = 'black' if color == 'white' else 'white'
+    score = 0
+    
+    # 単純な石数の差だけで評価
+    for row in board:
+        for cell in row:
+            if cell == color:
+                score += 1
+            elif cell == opponent:
+                score -= 1
+    
+    return score
 
 @app.route('/game_end', methods=['POST'])
 def game_end():
@@ -438,6 +699,42 @@ def evaluate_board(board, player):
     # 安定石の評価を追加
     score += evaluate_stable_stones(board, player) * 30
     
+    # つよいモード用に評価関数を強化
+    if game_phase == 'endgame':
+        # 終盤では石数をより重視
+        player_stones = sum(row.count(player) for row in board)
+        opponent_stones = sum(row.count(opponent) for row in board)
+        score += (player_stones - opponent_stones) * 20
+        
+    # 角の支配をより重視
+    corners = [(0,0), (0,7), (7,0), (7,7)]
+    for corner in corners:
+        if board[corner[0]][corner[1]] == player:
+            score += 200  # 角の重みを増加
+    
+    # ゲキムズモード用の追加評価
+    if game_phase == 'endgame':
+        # 終盤では石数をさらに重視
+        player_stones = sum(row.count(player) for row in board)
+        opponent_stones = sum(row.count(opponent) for row in board)
+        score += (player_stones - opponent_stones) * 30
+        
+        # 勝敗が決まっている場合は最大/最小スコア
+        if empty_cells == 0:
+            if player_stones > opponent_stones:
+                return float('inf')
+            elif player_stones < opponent_stones:
+                return float('-inf')
+    
+    # パリティ（奇数・偶数）の考慮
+    empty_regions = analyze_empty_regions(board)
+    for region in empty_regions:
+        if len(region) % 2 == 1:  # 奇数の空きマス領域
+            if has_more_access(board, region, player):
+                score += 15 * len(region)
+            else:
+                score -= 15 * len(region)
+    
     return score
 
 def evaluate_stable_stones(board, player):
@@ -468,6 +765,109 @@ def evaluate_stable_line_from_corner(board, row, col, player):
             y += dy
     
     return stable_count
+
+def analyze_empty_regions(board):
+    """空きマスの連結領域を解析"""
+    regions = []
+    visited = set()
+    
+    for i in range(8):
+        for j in range(8):
+            if board[i][j] is None and (i,j) not in visited:
+                region = find_connected_empty_cells(board, i, j, visited)
+                regions.append(region)
+    
+    return regions
+
+def find_connected_empty_cells(board, row, col, visited):
+    """連結している空きマスを探索"""
+    region = set()
+    stack = [(row, col)]
+    
+    while stack:
+        r, c = stack.pop()
+        if (r,c) in visited or board[r][c] is not None:
+            continue
+            
+        visited.add((r,c))
+        region.add((r,c))
+        
+        for dr in [-1,0,1]:
+            for dc in [-1,0,1]:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < 8 and 0 <= nc < 8 and board[nr][nc] is None:
+                    stack.append((nr,nc))
+    
+    return region
+
+def has_more_access(board, region, player):
+    """領域へのアクセス可能性を評価"""
+    player_access = 0
+    opponent_access = 0
+    
+    for r, c in region:
+        if any(is_valid_move(board, r, c, player) for (r,c) in region):
+            player_access += 1
+        if any(is_valid_move(board, r, c, 'black' if player == 'white' else 'white') for (r,c) in region):
+            opponent_access += 1
+    
+    return player_access > opponent_access
+
+def iterative_deepening_search(board, max_depth, alpha, beta, color, empty_count):
+    """反復深化探索"""
+    best_score = float('-inf')
+    
+    # 深さを徐々に増やしながら探索
+    for depth in range(4, max_depth + 1):
+        try:
+            score = negaScout(board, depth, alpha, beta, color)
+            best_score = score
+        except TimeoutError:
+            break
+    
+    return best_score
+
+def find_perfect_move(board, color, empty_count):
+    """完全読みによる必勝手の発見"""
+    moves = find_possible_moves(board, color)
+    best_move = None
+    best_score = float('-inf')
+    
+    for move in moves:
+        new_board = copy.deepcopy(board)
+        apply_move(new_board, move[0], move[1], color)
+        score = -perfect_search(new_board, color, -float('inf'), float('inf'), empty_count - 1)
+        
+        if score > best_score:
+            best_score = score
+            best_move = move
+            if score == float('inf'):  # 必勝手を見つけた
+                break
+    
+    return best_move
+
+def perfect_search(board, color, alpha, beta, depth):
+    """完全読みの探索関数"""
+    if depth == 0:
+        counts = count_stones(board)
+        return counts[color] - counts['white' if color == 'black' else 'black']
+    
+    moves = find_possible_moves(board, color)
+    if not moves:
+        if not has_valid_move(board, 'black' if color == 'white' else 'white'):
+            counts = count_stones(board)
+            return counts[color] - counts['white' if color == 'black' else 'black']
+        return -perfect_search(board, 'black' if color == 'white' else 'white', -beta, -alpha, depth)
+    
+    for move in moves:
+        new_board = copy.deepcopy(board)
+        apply_move(new_board, move[0], move[1], color)
+        score = -perfect_search(new_board, 'black' if color == 'white' else 'white', -beta, -alpha, depth - 1)
+        alpha = max(alpha, score)
+        if alpha >= beta:
+            break
+    
+    return alpha
 
 def find_possible_moves(board, color):
     moves = []

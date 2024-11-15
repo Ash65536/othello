@@ -142,6 +142,16 @@ body {
         padding: 0 10px;
         text-align: center;
     }
+
+    .difficulty-selector {
+        padding: 10px;
+        gap: 5px;
+    }
+
+    .difficulty-btn {
+        padding: 8px 15px;
+        font-size: 14px;
+    }
 }
 
 /* モバイル向け最適化 */
@@ -222,4 +232,33 @@ body {
         width: 45px;
         height: 45px;
     }
+}
+
+.difficulty-selector {
+    margin-bottom: 20px;
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.difficulty-btn {
+    padding: 10px 20px;
+    font-size: 16px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background-color: #34495e;
+    color: white;
+}
+
+.difficulty-btn:hover {
+    background-color: #2c3e50;
+    transform: translateY(-2px);
+}
+
+.difficulty-btn.selected {
+    background-color: #27ae60;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }

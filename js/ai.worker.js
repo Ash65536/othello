@@ -1,7 +1,7 @@
 let baseUrl = 'http://localhost:5000';
 
 self.onmessage = async function(e) {
-    const { board, color, remainingMoves } = e.data;
+    const { board, color, remainingMoves, difficulty } = e.data;  // difficultyを追加
     
     // 残り手数が0の場合は即座に終了
     if (remainingMoves === 0) {
@@ -23,7 +23,8 @@ self.onmessage = async function(e) {
             body: JSON.stringify({ 
                 board: board,
                 color: color,
-                remainingMoves: remainingMoves  // 残り手数を送信
+                remainingMoves: remainingMoves,  // 残り手数を送信
+                difficulty: difficulty  // 難易度を送信
             })
         });
 
