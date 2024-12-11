@@ -1,25 +1,27 @@
 <!DOCTYPE html>
 <html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <title>オセロゲーム</title>
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
-    <div class="difficulty-selector">
-        <button class="difficulty-btn" data-difficulty="easy">かんたん</button>
-        <button class="difficulty-btn" data-difficulty="normal">ふつう</button>
-        <button class="difficulty-btn" data-difficulty="hard">つよい</button>
-        <button class="difficulty-btn" data-difficulty="extreme">ゲキムズ</button>
-    </div>
-    <div class="board"></div>
-    <div class="message"></div>
-    <!-- スクリプトの順序と参照を修正 -->
-    <script src="js/Utils.js"></script>
-    <script src="js/GameManager.js"></script>
-    <!-- ai.jsを削除しai.worker.jsのみを使用 -->
-</body>
+	<head>
+		<meta charset="UTF-8" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+		/>
+		<meta name="mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<title>オセロゲーム</title>
+		<link rel="stylesheet" href="style.css" />
+	</head>
+	<body>
+		<div class="difficulty-selector">
+			<button class="difficulty-btn" data-difficulty="easy">かんたん</button>
+			<button class="difficulty-btn" data-difficulty="normal">ふつう</button>
+			<button class="difficulty-btn" data-difficulty="hard">つよい</button>
+			<button class="difficulty-btn" data-difficulty="extreme">ゲキムズ</button>
+		</div>
+		<div class="board"></div>
+		<div class="message"></div>
+		<!-- スクリプトの順序と参照を修正 -->
+		<script src="js/Utils.js"></script>
+		<script src="js/GameManager.js"></script>
+	</body>
 </html>

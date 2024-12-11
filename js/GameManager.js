@@ -31,7 +31,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // ビットボード表現を追加
+    let bitboard = {
+        black: BitBoard.INITIAL_BLACK,
+        white: BitBoard.INITIAL_WHITE
+    };
+
     function resetGame() {
+        bitboard = {
+            black: BitBoard.INITIAL_BLACK,
+            white: BitBoard.INITIAL_WHITE
+        };
+        board = BitBoard.toArray(bitboard.black, bitboard.white);
         // ボードの初期化
         for (let i = 0; i < 8; i++) {
             for (let j = 0; j < 8; j++) {
@@ -94,7 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleCellClick(row, col) {
-        // タッチデバイス��のダブルタップ防止
+        // タッチデバイスのダブルタップ防止
         if (isTouchDevice) {
             const now = Date.now();
             if (now - touchStartTime < 300) {
@@ -106,9 +117,22 @@ document.addEventListener('DOMContentLoaded', () => {
         // 処理中は操作を受け付けない
         if (isProcessing || currentPlayer === 'white') return;
 
+        const pos = row * 8 + col;
         if (isValidMove(board, row, col, currentPlayer)) {
             isProcessing = true;  // 処理開始
             lastMove = [row, col];  // Add this line to update lastMove
+            
+            // ビットボードで手を適用
+            const newBitboard = BitBoard.makeMove(
+                bitboard.black,
+                bitboard.white,
+                pos,
+                currentPlayer === 'black'
+            );
+            
+            bitboard = newBitboard;
+            board = BitBoard.toArray(bitboard.black, bitboard.white);
+            
             const flippedStones = applyMove(board, row, col, currentPlayer);
             
             const animationPromises = flippedStones.map(([x, y]) => {
@@ -239,7 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     endGame();
                 } else {
                     handlePass();
-                    return; // パスの場合は以降の処理をスキップ
+                    return; // パスの���合は以降の処理をスキップ
                 }
             }
 
@@ -364,10 +388,17 @@ document.addEventListener('DOMContentLoaded', () => {
         // AIに送信する前に最小待機時間を確保
         const gameState = {
             board: board,
+            bitboard: {
+                black: bitboard.black.toString(),
+                white: bitboard.white.toString()
+            },
             color: 'white',
-            counts: countStones(board),
+            counts: {
+                black: BitBoard.countBits(bitboard.black),
+                white: BitBoard.countBits(bitboard.white)
+            },
             lastMove: lastMove || null,
-            remainingMoves: board.flat().filter(cell => cell === null).length,
+            remainingMoves: BitBoard.countBits(~(bitboard.black | bitboard.white)),
             difficulty: currentDifficulty  // 難易度を追加
         };
         

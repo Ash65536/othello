@@ -183,3 +183,151 @@ function evaluateBoard(board, player) {
 
     return score;
 }
+
+// ビットボード操作のユーティリティを追加
+const BitBoard = {
+    FULL_BOARD: 0xFFFFFFFFFFFFFFFFn,
+    EMPTY: 0n,
+    
+    // 初期配置のビットボード
+    INITIAL_BLACK: 0x0000000810000000n,
+    INITIAL_WHITE: 0x0000001008000000n,
+    
+    // 方向定義
+    DIRECTIONS: [
+        8n,   // 下
+        -8n,  // 上
+        1n,   // 右
+        -1n,  // 左
+        7n,   // 右下
+        -7n,  // 左上
+        9n,   // 左下
+        -9n   // 右上
+    ],
+    
+    // マスクテーブル（事前計算）
+    HORIZONTAL_MASK: Array(64).fill(0n),
+    VERTICAL_MASK: Array(64).fill(0n),
+    DIAGONAL_MASK: Array(64).fill(0n),
+    
+    // マスクテーブルの初期化
+    initializeMasks() {
+        for (let pos = 0; pos < 64; pos++) {
+            const row = Math.floor(pos / 8);
+            const col = pos % 8;
+            
+            // 水平マスク
+            this.HORIZONTAL_MASK[pos] = 0xFFn << BigInt(row * 8);
+            
+            // 垂直マスク
+            this.VERTICAL_MASK[pos] = 0x0101010101010101n << BigInt(col);
+            
+            // 対角マスクは複雑なので省略（実際の実装では必要）
+        }
+    },
+
+    // 合法手を高速に生成
+    getLegalMoves(black, white) {
+        const empty = ~(black | white);
+        let moves = 0n;
+        
+        for (const dir of this.DIRECTIONS) {
+            const shift = dir > 0n ? black << dir : black >> -dir;
+            let candidates = shift & white;
+            
+            for (let i = 0; i < 5; i++) {
+                candidates |= (candidates << dir) & white;
+            }
+            
+            moves |= (candidates << dir) & empty;
+        }
+        
+        return moves;
+    },
+
+    // 石を打って反転処理を実行
+    makeMove(black, white, pos, isBlack) {
+        const move = 1n << BigInt(pos);
+        let flipped = 0n;
+        
+        for (const dir of this.DIRECTIONS) {
+            let flip = 0n;
+            let current = move;
+            
+            while (true) {
+                current = dir > 0n ? current << dir : current >> -dir;
+                if ((current & (isBlack ? white : black)) === 0n) break;
+                flip |= current;
+            }
+            
+            if (current & (isBlack ? black : white)) {
+                flipped |= flip;
+            }
+        }
+        
+        if (isBlack) {
+            black |= move | flipped;
+            white &= ~flipped;
+        } else {
+            white |= move | flipped;
+            black &= ~flipped;
+        }
+        
+        return { black, white };
+    },
+
+    // 配列表現とビットボード表現の相互変換
+    fromArray(board) {
+        let black = 0n;
+        let white = 0n;
+        
+        for (let i = 0; i < 64; i++) {
+            const row = Math.floor(i / 8);
+            const col = i % 8;
+            if (board[row][col] === 'black') {
+                black |= 1n << BigInt(i);
+            } else if (board[row][col] === 'white') {
+                white |= 1n << BigInt(i);
+            }
+        }
+        
+        return { black, white };
+    },
+
+    toArray(black, white) {
+        const board = Array(8).fill().map(() => Array(8).fill(null));
+        
+        for (let i = 0; i < 64; i++) {
+            const row = Math.floor(i / 8);
+            const col = i % 8;
+            const pos = 1n << BigInt(i);
+            
+            if (black & pos) {
+                board[row][col] = 'black';
+            } else if (white & pos) {
+                board[row][col] = 'white';
+            }
+        }
+        
+        return board;
+    },
+
+    // 石数をカウント（ビットカウント）
+    countBits(bitboard) {
+        let count = 0n;
+        let bb = bitboard;
+        while (bb) {
+            count++;
+            bb &= bb - 1n;
+        }
+        return Number(count);
+    }
+};
+
+// マスクテーブルの初期化を実行
+BitBoard.initializeMasks();
+
+// ビットボードをエクスポート
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { BitBoard };
+}
